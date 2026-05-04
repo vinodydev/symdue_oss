@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "name": "HN Daily Digest",
+  "transform": {
+    "x": 0,
+    "y": 0,
+    "k": 1
+  },
+  "workflow_config": {},
+  "nodes": [
+    {
+      "id": "8a1c4f10-0001-4a00-b000-000000000001",
+      "name": "FETCH_HN_STORIES",
+      "node_type_id": "custom-python",
+      "ui_x": 80,
+      "ui_y": 280,
+      "config": {
+        "name": "Python Node",
+        "code": "import requests\n\ndef main(inputs, storages):\n    top_ids = requests.get(\n        'https://hacker-news.firebaseio.com/v0/topstories.json',\n        timeout=15\n    ).json()[:10]\n    return {'output': [{'id': sid} for sid in top_ids]}\n",
+        "requirements": "requests",
+        "iterator": {
+          "enabled": false
+        }
+      },
+      "node_config": {}
+    },
+    {
+      "id": "8a1c4f10-0002-4a00-b000-000000000002",
+      "name": "FETCH_STORY_DETAILS",
+      "node_type_id": "custom-python",
+      "ui_x": 430,
+      "ui_y": 280,
+      "config": {
+        "name": "Python Node",
+        "code": "import requests\n\ndef main(inputs, storages):\n    item_ref = inputs.get('FETCH_HN_STORIES') or {}\n    sid = item_ref.get('id')\n    if not sid:\n        return {'output': None}\n    item = requests.get(\n        f'https://hacker-news.firebaseio.com/v0/item/{sid}.json',\n        timeout=15\n    ).json() or {}\n    comments = []\n    for cid in (item.get('kids') or [])[:3]:\n        c = requests.get(\n            f'https://hacker-news.firebaseio.com/v0/item/{cid}.json',\n            timeout=15\n        ).json() or {}\n        text = (c.get('text') or '')[:400]\n        if text:\n            comments.append({'by': c.get('by', ''), 'text': text})\n    return {\n        'output': {\n            'id': sid,\n            'title': item.get('title', ''),\n            'url': item.get('url') or f'https://news.ycombinator.com/item?id={sid}',\n            'score': item.get('score', 0),\n            'descendants': item.get('descendants', 0),\n            'comments': comments,\n        }\n    }\n",
+        "requirements": "requests",
+        "iterator": {
+          "enabled": true,
+          "source_node_name": "FETCH_HN_STORIES"
+        }
+      },
+      "node_config": {}
+    },
+    {
+      "id": "8a1c4f10-0003-4a00-b000-000000000003",
+      "name": "SUMMARIZE_STORY",
+      "node_type_id": "custom-llm",
+      "ui_x": 780,
+      "ui_y": 280,
+      "config": {
+        "name": "LLM Node",
+        "prompt": "You are summarizing a Hacker News story for a daily digest.\n\nTitle: {FETCH_STORY_DETAILS.title}\nURL: {FETCH_STORY_DETAILS.url}\nScore: {FETCH_STORY_DETAILS.score} ({FETCH_STORY_DETAILS.descendants} comments)\n\nTop comments:\n{FETCH_STORY_DETAILS.comments}\n\nWrite exactly two sentences:\n1. What the story is about — name the actual subject, technology, person, or claim. No \"this article discusses\" framing.\n2. The most interesting take from the comments — paraphrase a specific opinion or counterpoint, not \"people are debating it.\"\n\nBe direct. No hedging.",
+        "configId": "",
+        "iterator": {
+          "enabled": true,
+          "source_node_name": "FETCH_STORY_DETAILS"
+        }
+      },
+      "node_config": {}
+    },
+    {
+      "id": "8a1c4f10-0004-4a00-b000-000000000004",
+      "name": "DAILY_DIGEST",
+      "node_type_id": "custom-llm",
+      "ui_x": 1130,
+      "ui_y": 280,
+      "config": {
+        "name": "LLM Node",
+        "prompt": "You have summaries of today's top 10 Hacker News stories below.\n\nSummaries:\n{SUMMARIZE_STORY}\n\nProduce a single Markdown daily digest with:\n- A 1-sentence opening that names the dominant theme of today's front page (e.g., \"Today's HN is dominated by AI infra plays\" or \"Today is unusually heavy on systems-programming nostalgia\").\n- A numbered list of the 10 stories. Each item: **[Title](url)** — *score points, N comments* — the 2-sentence summary.\n- A closing paragraph: what's notably absent or surprising about today's selection?\n\nUse real Markdown links from the URL fields. Do not invent URLs.",
+        "configId": ""
+      },
+      "node_config": {}
+    }
+  ],
+  "edges": [
+    {
+      "source_node_id": "8a1c4f10-0001-4a00-b000-000000000001",
+      "target_node_id": "8a1c4f10-0002-4a00-b000-000000000002",
+      "weight": 1.0
+    },
+    {
+      "source_node_id": "8a1c4f10-0002-4a00-b000-000000000002",
+      "target_node_id": "8a1c4f10-0003-4a00-b000-000000000003",
+      "weight": 1.0
+    },
+    {
+      "source_node_id": "8a1c4f10-0003-4a00-b000-000000000003",
+      "target_node_id": "8a1c4f10-0004-4a00-b000-000000000004",
+      "weight": 1.0
+    }
+  ]
+}

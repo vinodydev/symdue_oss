@@ -1,0 +1,220 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: graphmind-postgres
+    environment:
+      POSTGRES_USER: graphmind
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: graphmind_db
+    ports:
+      # Default-bind to loopback only — see SECURITY.md "Trust model"
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U graphmind"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: graphmind-redis
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MinIO - S3-compatible file storage
+  minio:
+    image: minio/minio:latest
+    container_name: graphmind-minio
+    ports:
+      - "127.0.0.1:${MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER must be set in .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set in .env}
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # Temporal Server
+  temporal:
+    image: temporalio/auto-setup:latest
+    container_name: graphmind-temporal
+    ports:
+      - "127.0.0.1:${TEMPORAL_PORT:-7233}:7233"  # Temporal gRPC
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=graphmind
+      - POSTGRES_PWD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      - POSTGRES_SEEDS=postgres
+      # Auto-create the graphmind namespace on startup
+      - DEFAULT_NAMESPACE=graphmind
+      - SKIP_DEFAULT_NAMESPACE_CREATION=false
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - temporal_data:/var/lib/temporal
+    healthcheck:
+      # Use the container's own IP (localhost doesn't work inside auto-setup)
+      test: ["CMD-SHELL", "temporal operator namespace describe -n graphmind --address $$(hostname -i):7233 2>&1 | grep -q graphmind || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # Temporal Web UI (separate container)
+  temporal-ui:
+    image: temporalio/ui:latest
+    container_name: graphmind-temporal-ui
+    ports:
+      - "127.0.0.1:${TEMPORAL_UI_PORT:-8089}:8080"
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:8089
+    depends_on:
+      - temporal
+
+  backend:
+    build:
+      context: ../server
+      dockerfile: setup/Dockerfile
+      args:
+        # Match the host's docker-group GID so the bind-mounted /var/run/docker.sock
+        # is writable by the in-container non-root user. setup/run.sh detects this.
+        DOCKER_GID: ${DOCKER_GID:-999}
+    container_name: graphmind-backend
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: postgresql://graphmind:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@postgres:5432/graphmind_db
+      REDIS_URL: redis://redis:6379/0
+      TEMPORAL_HOST: temporal
+      TEMPORAL_PORT: 7233
+      TEMPORAL_NAMESPACE: graphmind
+      # CRITICAL: DooD path configuration (relative to project root: graph_execution/graph_mind/)
+      # Note: These are for application use; actual volumes use relative paths below
+      HOST_WORKSPACE_ROOT: /workspaces
+      INTERNAL_WORKSPACE_ROOT: /app/workspaces
+      HOST_CACHE_ROOT: /cache
+      INTERNAL_CACHE_ROOT: /app/cache
+      HOST_STORAGE_ROOT: /storage
+      INTERNAL_STORAGE_ROOT: /app/storage
+      DOCKER_HOST: unix:///var/run/docker.sock
+      # API Configuration
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      # Security
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env}
+    volumes:
+      - ../server:/app
+      # CRITICAL: Docker socket for DooD (allows spawning containers)
+      - /var/run/docker.sock:/var/run/docker.sock
+      # CRITICAL: Workspace directory (host:container mapping) - relative to project root
+      - ../../graph_mind/workspaces:/app/workspaces
+      # CRITICAL: Dependency cache (host:container mapping)
+      - ../../graph_mind/cache:/app/cache
+      # CRITICAL: File storage for image outputs
+      - ../../graph_mind/storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Temporal Worker — processes graph execution workflows
+  temporal-worker:
+    build:
+      context: ../server
+      dockerfile: setup/Dockerfile
+      args:
+        DOCKER_GID: ${DOCKER_GID:-999}
+    container_name: graphmind-temporal-worker
+    # command: python -m services.temporal.workers.graph_worker
+    entrypoint: ["python", "-m", "services.temporal.workers.graph_worker"]
+    environment:
+      DATABASE_URL: postgresql://graphmind:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@postgres:5432/graphmind_db
+      REDIS_URL: redis://redis:6379/0
+      TEMPORAL_HOST: temporal
+      TEMPORAL_PORT: 7233
+      TEMPORAL_NAMESPACE: graphmind
+      HOST_WORKSPACE_ROOT: /workspaces
+      INTERNAL_WORKSPACE_ROOT: /app/workspaces
+      HOST_CACHE_ROOT: /cache
+      INTERNAL_CACHE_ROOT: /app/cache
+      HOST_STORAGE_ROOT: /storage
+      INTERNAL_STORAGE_ROOT: /app/storage
+      DOCKER_HOST: unix:///var/run/docker.sock
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env}
+    volumes:
+      - ../server:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../../graph_mind/workspaces:/app/workspaces
+      - ../../graph_mind/cache:/app/cache
+      - ../../graph_mind/storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    # Worker has no HTTP server; mark healthy if worker process is running (ps is in python:slim)
+    healthcheck:
+      test: ["CMD-SHELL", "ps aux | grep -q '[g]raph_worker'"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  frontend:
+    build:
+      context: ../client
+      dockerfile: setup/Dockerfile
+    container_name: graphmind-frontend
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:5173"  # Vite dev server port
+    environment:
+      # Vite environment variables
+      VITE_API_URL: http://localhost:8000
+      VITE_WS_URL: ws://localhost:8000
+    volumes:
+      # Mount source code for hot reload - changes reflect immediately
+      - ../client:/app
+      # Preserve node_modules in named volume (don't overwrite with host's version)
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5173/"]
+      interval: 30s
+      timeout: 3s
+      start_period: 15s
+      retries: 3
+
+volumes:
+  postgres_data:
+  redis_data:
+  temporal_data:
+  frontend_node_modules:
+  minio_data:

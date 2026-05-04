@@ -1,0 +1,74 @@
+# Core Framework
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+pydantic>=2.7.4
+pydantic-settings>=2.1.0
+
+# Database
+sqlalchemy==2.0.23
+alembic==1.12.1
+psycopg2-binary==2.9.9
+
+# Orchestration
+temporalio==1.5.1
+
+# AI & Graph Execution
+langgraph>=0.4.0
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-openai>=0.3.0
+langchain-anthropic>=0.3.0
+langchain-google-genai>=2.0.0
+google-generativeai>=0.7.0  # For Google/Gemini image support
+
+# Image Processing
+# >=12.2.0 closes CVE-2023-50447, CVE-2024-28219, CVE-2026-25990, CVE-2026-40192.
+# No first-party code imports PIL (audited 2026-05-01); Pillow is loaded but
+# unused, so the major-version jump is safe.
+Pillow>=12.2.0
+
+# Message Broker
+redis==5.0.1
+
+# HTTP & Networking
+httpx>=0.25.2
+requests>=2.31.0
+websockets>=9.0
+aiohttp>=3.8.3
+
+# Execution & Containerization
+# docker>=7.1.0 fixes "Not supported URL scheme http+docker" with requests>=2.32
+docker>=7.1.0
+
+# Data Processing
+pandas==2.1.3
+numpy==1.26.2
+yfinance==0.2.28
+beautifulsoup4==4.12.2
+
+# Web Scraping
+playwright==1.40.0
+
+# Trading APIs (optional - install separately if needed)
+# Note: alpaca-trade-api==3.1.1 conflicts with langchain's aiohttp requirement
+# Will be handled in Phase 5 (Stock Prediction Nodes)
+# alpaca-trade-api==3.1.1
+
+# Utilities
+python-dotenv>=1.2.2  # >=1.2.2 closes CVE-2026-28684
+python-dateutil==2.8.2
+
+# Storage backends
+pymongo>=4.6.0  # MongoDB
+chromadb>=0.4.0  # ChromaDB
+
+# Vector search
+pgvector>=0.2.0  # PostgreSQL vector extension (via SQLAlchemy)
+
+# File storage (S3-compatible)
+boto3>=1.28.0  # For MinIO and AWS S3
+
+# Embeddings (for vector storage)
+sentence-transformers>=2.2.0  # For Chroma and local embeddings
+openai>=1.0.0  # For OpenAI embeddings (optional)
+
