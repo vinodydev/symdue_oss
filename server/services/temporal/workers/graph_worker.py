@@ -13,6 +13,7 @@ from services.temporal.activities.node_executor import (
     execute_llm_node_activity,
     execute_input_node_activity,
     execute_memory_node_activity,
+    execute_html_viewer_node_activity,
     save_run_results_activity,
     publish_workflow_status_activity,
 )
@@ -41,6 +42,7 @@ async def main():
             execute_llm_node_activity,
             execute_input_node_activity,
             execute_memory_node_activity,
+            execute_html_viewer_node_activity,
             save_run_results_activity,
             publish_workflow_status_activity,
         ],

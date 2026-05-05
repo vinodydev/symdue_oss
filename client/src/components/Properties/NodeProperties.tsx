@@ -7,13 +7,14 @@ import { createPortal } from 'react-dom';
 import { useAppStore } from '@/stores';
 import { api } from '@/services/api';
 import type { Node, NodeStatus, StorageConfig, NodeStorageInfo, NodeType } from '@/types';
-import { Trash2, Database, Code, Cpu, History, Loader2, CheckCircle2, XCircle, Clock, Plus, X, Save, Copy, Check, Maximize2, Workflow, ExternalLink } from 'lucide-react';
+import { Trash2, Database, Code, Cpu, History, Loader2, CheckCircle2, XCircle, Clock, Plus, X, Save, Copy, Check, Maximize2, Workflow, ExternalLink, Eye } from 'lucide-react';
 import { WaitNodeProperties } from './WaitNodeProperties';
 import { cn } from '@/utils/cn';
 import { StorageSelectorModal } from './StorageSelectorModal';
 import { OutputModal } from './OutputModal';
 import { ExpandableCodeModal } from './ExpandableCodeModal';
 import { ExpandableTextModal } from './ExpandableTextModal';
+import { HtmlPreviewModal } from './HtmlPreviewModal';
 import { PythonCodeEditor, type CodeEditorHandle } from './PythonCodeEditor';
 import { IteratorConfig } from './IteratorConfig';
 import { supportsIterator } from '@/utils/nodeUtils';
@@ -30,7 +31,19 @@ const iconMap: Record<string, React.ComponentType<{ size?: number; className?: s
   'custom-llm': Cpu,
   'memory': History,
   'workflow_node': Workflow,
+  'html-viewer': Eye,
 };
+
+/** Extract HTML content from a raw string for the html-viewer preview (issue17).
+ * LLMs commonly wrap output in fenced code blocks (```html ... ```); pull the
+ * fenced content if present, otherwise return the raw string. Trim whitespace.
+ * Accepts unknown so the modal-mount path doesn't crash for non-html-viewer
+ * nodes whose output is an object. */
+function extractHtmlForPreview(raw: unknown): string {
+  if (typeof raw !== 'string' || !raw) return '';
+  const fenceMatch = raw.match(/```(?:html)?\s*\n?([\s\S]*?)\n?```/i);
+  return (fenceMatch ? fenceMatch[1] : raw).trim();
+}
 
 /** Small badge showing node execution status */
 function StatusBadge({ status }: { status: NodeStatus }) {
@@ -93,7 +106,7 @@ export function NodeProperties({ node }: NodePropertiesProps) {
   const [nodeTypes, setNodeTypes] = useState<NodeType[]>([]);
   const [showSaveTemplateDialog, setShowSaveTemplateDialog] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [expandedSection, setExpandedSection] = useState<'inputs' | 'outputs' | 'pythonCode' | 'inputValue' | 'prompt' | 'requirements' | null>(null);
+  const [expandedSection, setExpandedSection] = useState<'inputs' | 'outputs' | 'pythonCode' | 'inputValue' | 'prompt' | 'requirements' | 'htmlPreview' | null>(null);
   const [edgeNodesOfRefWorkflow, setEdgeNodesOfRefWorkflow] = useState<{ node_id: string; node_name: string; key: string }[]>([]);
   const codeEditorGetValueRef = useRef<CodeEditorHandle | null>(null);
 
@@ -422,6 +435,30 @@ export function NodeProperties({ node }: NodePropertiesProps) {
               </pre>
             )}
           </div>
+          {/* HTML preview pane (issue17): for html-viewer nodes only, sandboxed iframe render */}
+          {node.node_type_id === 'html-viewer' && typeof historicalOutputs?.output === 'string' && (
+            <div className="mt-3">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                  HTML Preview
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setExpandedSection('htmlPreview')}
+                  className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+                  title="Expand to fullscreen"
+                >
+                  <Maximize2 size={14} />
+                </button>
+              </div>
+              <iframe
+                sandbox=""
+                srcDoc={extractHtmlForPreview(historicalOutputs.output as string)}
+                className="w-full h-96 bg-white rounded-lg border border-slate-700"
+                title="HTML preview"
+              />
+            </div>
+          )}
           {node.node_type_id === 'workflow_node' && historicalOutputs?.child_run_id && historicalOutputs?.child_workflow_id && (
             <div className="mt-2">
               <button
@@ -495,6 +532,30 @@ export function NodeProperties({ node }: NodePropertiesProps) {
                   {JSON.stringify(liveOutputs, null, 2)}
                 </pre>
               </div>
+              {/* HTML preview pane (issue17) — live-mode variant */}
+              {node.node_type_id === 'html-viewer' && typeof (liveOutputs as { output?: unknown })?.output === 'string' && (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                      HTML Preview
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedSection('htmlPreview')}
+                      className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+                      title="Expand to fullscreen"
+                    >
+                      <Maximize2 size={14} />
+                    </button>
+                  </div>
+                  <iframe
+                    sandbox=""
+                    srcDoc={extractHtmlForPreview((liveOutputs as { output: string }).output)}
+                    className="w-full h-96 bg-white rounded-lg border border-slate-700"
+                    title="HTML preview"
+                  />
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -629,6 +690,16 @@ export function NodeProperties({ node }: NodePropertiesProps) {
               }
             }}
           />
+        )}
+
+        {/* ─── HTML Viewer Configuration (issue17) ─── */}
+        {node.node_type_id === 'html-viewer' && (
+          <div className="p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
+            <p className="text-[11px] text-indigo-200 leading-relaxed">
+              Renders its upstream input as <span className="font-bold">sandboxed HTML</span> in the preview pane below.
+              Connect an LLM or any string-producing node upstream. Code fences (<code className="bg-slate-800 px-1 rounded">```html</code>) are stripped automatically.
+            </p>
+          </div>
         )}
 
         {node.node_type_id === 'input' && (
@@ -1051,6 +1122,21 @@ export function NodeProperties({ node }: NodePropertiesProps) {
         copied={copiedId === 'requirementsModal'}
         placeholder="pip: pandas, requests..."
         textClassName="text-slate-400"
+      />
+
+      {/* HTML Preview fullscreen modal (issue17) */}
+      <HtmlPreviewModal
+        open={expandedSection === 'htmlPreview'}
+        title="HTML Preview"
+        html={extractHtmlForPreview(
+          ((isHistoryMode ? historicalOutputs?.output : (liveOutputs as { output?: unknown })?.output) as string) || ''
+        )}
+        onClose={() => setExpandedSection(null)}
+        onCopy={() => {
+          const src = ((isHistoryMode ? historicalOutputs?.output : (liveOutputs as { output?: unknown })?.output) as string) || '';
+          copyToClipboard(extractHtmlForPreview(src), 'htmlPreviewModal');
+        }}
+        copied={copiedId === 'htmlPreviewModal'}
       />
     </div>
   );

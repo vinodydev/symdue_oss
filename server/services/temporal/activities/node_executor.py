@@ -708,6 +708,17 @@ def create_node_function(
             else:
                 result = await execute_memory_node_activity(node_id, node_config, node_inputs, run_id)
 
+        elif node_type_id == "html-viewer":
+            if workflow:
+                result = await workflow.execute_activity(
+                    execute_html_viewer_node_activity,
+                    args=[node_id, node_config, node_inputs, run_id],
+                    start_to_close_timeout=timedelta(seconds=5),
+                    retry_policy=NODE_EXECUTION_RETRY_POLICY,
+                )
+            else:
+                result = await execute_html_viewer_node_activity(node_id, node_config, node_inputs, run_id)
+
         elif node_type_id == "workflow_node":
             # Sub-workflow: merge upstream outputs and run child graph
             ref_workflow_id = node_config.get("workflow_id")
@@ -1390,6 +1401,8 @@ async def _execute_manual_topo(
                 result = await execute_llm_node_activity(node_id, node_config, node_inputs, run_id)
             elif node_type_id == "memory":
                 result = await execute_memory_node_activity(node_id, node_config, node_inputs, run_id)
+            elif node_type_id == "html-viewer":
+                result = await execute_html_viewer_node_activity(node_id, node_config, node_inputs, run_id)
             else:
                 raise ValueError(f"Unknown node type: {node_type_id}")
 
@@ -1459,6 +1472,83 @@ async def execute_input_node_activity(
         return result
     except Exception as e:
         await publish_node_status(run_id, node_id, "error", {"error": {"type": type(e).__name__, "message": str(e)}})
+        raise
+
+
+@activity.defn
+async def execute_html_viewer_node_activity(
+    node_id: str,
+    node_config: Dict[str, Any],
+    inputs: Dict[str, Any],
+    run_id: str,
+) -> Dict[str, Any]:
+    """HTML viewer (issue17): scan all upstream string values, pick the one that
+    looks most like HTML, strip code fences. The frontend renders the cleaned
+    output inside a sandboxed iframe.
+
+    `_aggregate_node_inputs` aggregates every completed node's output into the
+    activity's `inputs` dict — not just edge-connected upstream — so the activity
+    sees an entry node's plain string alongside an LLM's HTML report. A
+    score-based pick (HTML markers > plain text) matches user intent without
+    any wiring discipline or graph plumbing.
+    """
+    import re
+    TAG_PAT = re.compile(
+        r'<(?:div|p|span|h[1-6]|ul|ol|table|li|a|img|section|article)\b',
+        re.IGNORECASE,
+    )
+    FENCE_PAT = re.compile(
+        r'^```(?:html)?\s*\n?([\s\S]*?)\n?```\s*$',
+        re.IGNORECASE,
+    )
+
+    def _score_html(s: str) -> float:
+        sc = 0.0
+        if FENCE_PAT.match(s.strip()) and '<' in s:
+            sc += 100
+        low = s.lower()
+        if '<!doctype' in low:
+            sc += 50
+        if '<html' in low or '<body' in low:
+            sc += 50
+        sc += min(50, 5 * len(TAG_PAT.findall(s)))
+        sc += 0.001 * len(s)  # length tiebreak
+        return sc
+
+    await publish_node_status(run_id, node_id, "running")
+    try:
+        candidates: list = []
+        for v in (inputs or {}).values():
+            if isinstance(v, str) and v.strip():
+                candidates.append((_score_html(v), v))
+            elif isinstance(v, dict) and isinstance(v.get("output"), str) and v["output"].strip():
+                inner = v["output"]
+                candidates.append((_score_html(inner), inner))
+
+        html = ""
+        if candidates:
+            candidates.sort(key=lambda x: x[0], reverse=True)
+            top_score, top_html = candidates[0]
+            # If nothing scored on HTML markers (only the length tiebreak),
+            # fall back to longest string — still beats picking by completion order.
+            if top_score <= 0.05:
+                top_html = max((c[1] for c in candidates), key=len)
+            # Strip code fence backend-side so node_outputs[id].output is clean HTML.
+            m = FENCE_PAT.match(top_html.strip())
+            html = (m.group(1) if m else top_html).strip()
+
+        result = {"output": html, "output_type": "html"}
+        await publish_node_status(run_id, node_id, "success", result)
+        logger.info(
+            f"[run={run_id}] HTML viewer {node_id}: picked {len(html)} chars "
+            f"from {len(candidates)} candidates"
+        )
+        return result
+    except Exception as e:
+        await publish_node_status(
+            run_id, node_id, "error",
+            {"error": {"type": type(e).__name__, "message": str(e)}},
+        )
         raise
 
 
@@ -2235,7 +2325,7 @@ async def save_run_results_activity(
         )
         if already_persisted:
             run.status = status
-            if run.started_at and run.completed_at:
+            if run.started_at is not None and run.completed_at is not None:
                 run.duration = (run.completed_at - run.started_at).total_seconds()
             node_outputs = existing_outputs
             node_name_map = existing_snapshot.get("node_name_map") or {}
@@ -2264,9 +2354,9 @@ async def save_run_results_activity(
         )
         if preserve_partial:
             run.status = "cancelled"
-            run.completed_at = func.now()
+            run.completed_at = datetime.utcnow()  # Python datetime so the subtraction below works without commit+refresh
             run.error_message = final_state.get("error", "Activity cancelled")
-            if run.started_at and run.completed_at:
+            if run.started_at is not None:
                 run.duration = (run.completed_at - run.started_at).total_seconds()
             # Keep existing snapshot; compute stats from it
             node_outputs = existing_outputs
@@ -2278,7 +2368,7 @@ async def save_run_results_activity(
             run.snapshot = _sanitize_for_jsonb(final_state)
             db.commit()
             db.refresh(run)
-            if run.started_at and run.completed_at:
+            if run.started_at is not None and run.completed_at is not None:
                 run.duration = (run.completed_at - run.started_at).total_seconds()
             node_outputs = final_state.get("node_outputs", {})
             node_name_map = final_state.get("node_name_map", {})

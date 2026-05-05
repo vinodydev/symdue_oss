@@ -118,6 +118,23 @@ def seed_base_node_types():
                 }
             },
             {
+                "id": "html-viewer",
+                "category": "view",
+                "name": "HTML Viewer",
+                "description": "Renders the upstream string as sandboxed HTML in the properties panel",
+                "icon": "eye",
+                "is_builtin": True,
+                "default_config": {
+                    "name": "HTML Viewer"
+                },
+                "config_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"}
+                    }
+                }
+            },
+            {
                 "id": "wait",
                 "category": "Control",
                 "name": "Wait",
