@@ -62,3 +62,6 @@ Thumbs.db
 
 # Internal-only planning docs; not part of public release
 pending/
+
+# Per-developer change notes; not part of public release
+changes/
