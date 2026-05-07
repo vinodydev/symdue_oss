@@ -1,0 +1,154 @@
+{
+  "version": 1,
+  "name": "Local File Summarizer",
+  "transform": {
+    "x": 0,
+    "y": 0,
+    "k": 1
+  },
+  "workflow_config": {},
+  "nodes": [
+    {
+      "id": "9c2e7b41-0001-4d00-9c00-aaaaaaaaaaa1",
+      "name": "LIST_FILES",
+      "node_type_id": "custom-python",
+      "ui_x": 80,
+      "ui_y": 280,
+      "config": {
+        "name": "Python Node",
+        "code": "def main(inputs, storages, files):\n    # Where you drop the files you want summarized.\n    # /storage/ is mounted (read-only) from ${HOST_STORAGE_ROOT}, which setup-dood.sh\n    # creates at <repo-parent>/graph_mind/storage/. Drop files into\n    # <repo-parent>/graph_mind/storage/inputs/ on the host — no workspace_id needed.\n    # See local-file-summarizer.md for the full setup walkthrough.\n    SCAN_DIR = '/storage/inputs'\n    ALLOWED_EXTS = ('.txt', '.md', '.markdown', '.log', '.rst')\n\n    if not files.exists(SCAN_DIR):\n        return {\n            'output': {\n                'files': [],\n                'total': 0,\n                'error': f'{SCAN_DIR} does not exist. See local-file-summarizer.md \\u2192 \"File setup\".',\n            }\n        }\n\n    paths = []\n    for name in sorted(files.list_dir(SCAN_DIR)):\n        if name.startswith('.'):\n            continue\n        if name.endswith(ALLOWED_EXTS):\n            paths.append(f'{SCAN_DIR}/{name}')\n\n    return {'output': {'files': paths, 'total': len(paths)}}\n",
+        "requirements": "",
+        "iterator": {
+          "enabled": false
+        }
+      },
+      "node_config": {}
+    },
+    {
+      "id": "9c2e7b41-0002-4d00-9c00-aaaaaaaaaaa2",
+      "name": "LOAD_NEXT",
+      "node_type_id": "custom-python",
+      "ui_x": 430,
+      "ui_y": 280,
+      "config": {
+        "name": "Python Node",
+        "code": "import tiktoken\n\ndef main(inputs, storages, files):\n    listing = (inputs.get('LIST_FILES') or {}).get('output') or {}\n    paths = listing.get('files') or []\n    total = int(listing.get('total') or 0)\n\n    # Loop self-state: read our own previous return value to advance the index.\n    # On the first pass, inputs['LOAD_NEXT'] is None.\n    prev_self = inputs.get('LOAD_NEXT')\n    if prev_self is None:\n        next_index = 0\n    else:\n        next_index = int(prev_self.get('index', -1)) + 1\n\n    if total == 0 or next_index >= total:\n        # GATE should have exited the loop before we get here; emit a safe no-op.\n        return {'output': [], 'index': next_index, 'total': total, 'file_path': None}\n\n    path = paths[next_index]\n    content = files.read_text(path)\n\n    # Token-aware split. cl100k_base is GPT-4 / o200k-compatible; close enough for\n    # any provider for chunk sizing purposes.\n    enc = tiktoken.get_encoding('cl100k_base')\n    tokens = enc.encode(content)\n\n    CHUNK_TOKENS = 1500\n    OVERLAP = 150\n    chunks = []\n    i = 0\n    while i < len(tokens):\n        slice_tokens = tokens[i:i + CHUNK_TOKENS]\n        chunks.append({\n            'chunk_index': len(chunks),\n            'file_path': path,\n            'text': enc.decode(slice_tokens),\n        })\n        i += max(CHUNK_TOKENS - OVERLAP, 1)\n\n    for c in chunks:\n        c['total_chunks_in_file'] = len(chunks)\n\n    return {\n        'output': chunks,\n        'index': next_index,\n        'total': total,\n        'file_path': path,\n    }\n",
+        "requirements": "tiktoken>=0.5.0",
+        "iterator": {
+          "enabled": false
+        }
+      },
+      "node_config": {}
+    },
+    {
+      "id": "9c2e7b41-0003-4d00-9c00-aaaaaaaaaaa3",
+      "name": "SUMMARIZE_CHUNK",
+      "node_type_id": "custom-llm",
+      "ui_x": 780,
+      "ui_y": 280,
+      "config": {
+        "name": "LLM Node",
+        "prompt": "You are summarizing one slice of a longer document. Be dense and precise.\n\nFile: {LOAD_NEXT.file_path}\nSlice {LOAD_NEXT.chunk_index} of {LOAD_NEXT.total_chunks_in_file}\n\nText:\n{LOAD_NEXT.text}\n\nOutput 2-3 sentences. Preserve numbers, proper nouns, dates, and code identifiers exactly. Capture only what THIS slice contains — do not speculate about other parts of the document.",
+        "configId": "",
+        "iterator": {
+          "enabled": true,
+          "source_node_name": "LOAD_NEXT"
+        }
+      },
+      "node_config": {}
+    },
+    {
+      "id": "9c2e7b41-0004-4d00-9c00-aaaaaaaaaaa4",
+      "name": "ROLLUP",
+      "node_type_id": "custom-python",
+      "ui_x": 1130,
+      "ui_y": 280,
+      "config": {
+        "name": "Python Node",
+        "code": "def main(inputs, storages):\n    # Per-pass: take this file's chunk summaries from SUMMARIZE_CHUNK (an array, since\n    # SUMMARIZE_CHUNK iterates), and append them to our own accumulator.\n    chunk_summaries = (inputs.get('SUMMARIZE_CHUNK') or {}).get('output')\n    if chunk_summaries is None:\n        # Some runtimes pass the array directly under the node key.\n        chunk_summaries = inputs.get('SUMMARIZE_CHUNK') or []\n    if isinstance(chunk_summaries, str):\n        chunk_summaries = [chunk_summaries]\n    if not isinstance(chunk_summaries, list):\n        chunk_summaries = [chunk_summaries]\n\n    state = inputs.get('LOAD_NEXT') or {}\n    file_path = state.get('file_path')\n\n    # Loop self-state: append this file's summary to whatever we accumulated\n    # on previous passes. inputs['ROLLUP'] is None on the first pass.\n    prev_self = inputs.get('ROLLUP')\n    accumulated = (prev_self or {}).get('output') or []\n    if not isinstance(accumulated, list):\n        accumulated = []\n\n    if file_path:\n        accumulated = list(accumulated) + [{\n            'file_path': file_path,\n            'chunk_summaries': chunk_summaries,\n        }]\n\n    return {'output': accumulated}\n",
+        "requirements": "",
+        "iterator": {
+          "enabled": false
+        }
+      },
+      "node_config": {}
+    },
+    {
+      "id": "9c2e7b41-0005-4d00-9c00-aaaaaaaaaaa5",
+      "name": "GATE",
+      "node_type_id": "condition-python",
+      "ui_x": 1480,
+      "ui_y": 280,
+      "config": {
+        "name": "Condition",
+        "code": "def main(inputs, storages):\n    # True → exit loop, route to FINAL_REPORT.\n    # False → loop back to LOAD_NEXT for the next file.\n    state = inputs.get('LOAD_NEXT') or {}\n    index = int(state.get('index', -1))\n    total = int(state.get('total', 0))\n    return index + 1 >= total\n",
+        "requirements": "",
+        "condition_mode": true
+      },
+      "node_config": {}
+    },
+    {
+      "id": "9c2e7b41-0006-4d00-9c00-aaaaaaaaaaa6",
+      "name": "FINAL_REPORT",
+      "node_type_id": "custom-llm",
+      "ui_x": 1830,
+      "ui_y": 280,
+      "config": {
+        "name": "LLM Node",
+        "prompt": "You are composing a final report across multiple files.\n\nFile summaries (each file's chunks are already individually summarized):\n{ROLLUP}\n\nProduce a styled HTML report with:\n- An <h1> with a one-line opening that names the dominant theme across all files.\n- For each file: an <h2> with the file path, then a <ul> of 3-5 bullets distilled from that file's chunk summaries. Preserve specific numbers, names, dates, and identifiers.\n- A closing <p> calling out anything notably absent or surprising across the set.\n\nUse semantic HTML with light inline styles (no <script>, no external resources). Output ONLY HTML — no markdown fences, no preamble.",
+        "configId": ""
+      },
+      "node_config": {}
+    },
+    {
+      "id": "9c2e7b41-0007-4d00-9c00-aaaaaaaaaaa7",
+      "name": "PREVIEW",
+      "node_type_id": "html-viewer",
+      "ui_x": 2180,
+      "ui_y": 280,
+      "config": {
+        "name": "HTML Viewer"
+      },
+      "node_config": {}
+    }
+  ],
+  "edges": [
+    {
+      "source_node_id": "9c2e7b41-0001-4d00-9c00-aaaaaaaaaaa1",
+      "target_node_id": "9c2e7b41-0002-4d00-9c00-aaaaaaaaaaa2",
+      "weight": 1.0
+    },
+    {
+      "source_node_id": "9c2e7b41-0002-4d00-9c00-aaaaaaaaaaa2",
+      "target_node_id": "9c2e7b41-0003-4d00-9c00-aaaaaaaaaaa3",
+      "weight": 1.0
+    },
+    {
+      "source_node_id": "9c2e7b41-0003-4d00-9c00-aaaaaaaaaaa3",
+      "target_node_id": "9c2e7b41-0004-4d00-9c00-aaaaaaaaaaa4",
+      "weight": 1.0
+    },
+    {
+      "source_node_id": "9c2e7b41-0004-4d00-9c00-aaaaaaaaaaa4",
+      "target_node_id": "9c2e7b41-0005-4d00-9c00-aaaaaaaaaaa5",
+      "weight": 1.0
+    },
+    {
+      "source_node_id": "9c2e7b41-0005-4d00-9c00-aaaaaaaaaaa5",
+      "target_node_id": "9c2e7b41-0006-4d00-9c00-aaaaaaaaaaa6",
+      "weight": 1.0,
+      "source_handle": "true"
+    },
+    {
+      "source_node_id": "9c2e7b41-0005-4d00-9c00-aaaaaaaaaaa5",
+      "target_node_id": "9c2e7b41-0002-4d00-9c00-aaaaaaaaaaa2",
+      "weight": 1.0,
+      "source_handle": "false"
+    },
+    {
+      "source_node_id": "9c2e7b41-0006-4d00-9c00-aaaaaaaaaaa6",
+      "target_node_id": "9c2e7b41-0007-4d00-9c00-aaaaaaaaaaa7",
+      "weight": 1.0
+    }
+  ]
+}
