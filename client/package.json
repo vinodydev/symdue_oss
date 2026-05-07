@@ -21,7 +21,7 @@
     "@uiw/codemirror-themes": "^4.23.0",
     "@uiw/react-codemirror": "^4.23.0",
     "autoprefixer": "^10.4.16",
-    "axios": "^1.13.5",
+    "axios": "^1.16.0",
     "clsx": "^2.0.0",
     "lucide-react": "^0.294.0",
     "postcss": "^8.5.10",
