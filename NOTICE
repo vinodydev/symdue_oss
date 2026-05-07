@@ -1,0 +1,16 @@
+Symdue
+Copyright (c) 2025-2026 Vinod Y and Symdue contributors
+
+This product includes software developed at Symdue
+(https://github.com/vinodydev/symdue_oss).
+
+Portions of this product are licensed under the Apache License, Version 2.0
+(the plugin SDK in server/schemas/, demo workflows in demos/, and public
+API specifications in docs/NODE_TYPE_API.md). See LICENSE-APACHE for the
+full Apache 2.0 text.
+
+The Symdue runtime is licensed under the GNU Affero General Public License
+v3.0 or later. See LICENSE-AGPL for the full text.
+
+Third-party components and their respective licenses are listed in the
+dependency manifests (server/requirements.txt, client/package.json).

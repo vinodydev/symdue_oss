@@ -1,6 +1,6 @@
 # Demo workflows
 
-Workflow exports used to film the launch demos. Import any `.json` here via the workflow import button in the flowgraph UI, then assign your LLM provider config — `configId` is left empty on purpose so the import doesn't depend on a UUID that exists only on our machine.
+Workflow exports used to film the launch demos. Import any `.json` here via the workflow import button in the symdue UI, then assign your LLM provider config — `configId` is left empty on purpose so the import doesn't depend on a UUID that exists only on our machine.
 
 ## hn-daily-digest.json
 

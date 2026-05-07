@@ -6,9 +6,9 @@ This project is in early public release. Security fixes will land on the `main` 
 
 ## Trust model
 
-Flowgraph is a workflow runtime substrate. By design it executes user-supplied Python in containers (Custom Python nodes), spawns containers via the host Docker daemon, and stores credentials for any LLM provider you connect. **The substrate is single-tenant** — it does not implement multi-user authentication or workspace isolation. Treat the running backend as a single trust domain.
+Symdue is a workflow runtime substrate. By design it executes user-supplied Python in containers (Custom Python nodes), spawns containers via the host Docker daemon, and stores credentials for any LLM provider you connect. **The substrate is single-tenant** — it does not implement multi-user authentication or workspace isolation. Treat the running backend as a single trust domain.
 
-Operate Flowgraph with these guardrails:
+Operate Symdue with these guardrails:
 
 ### 1. Do not expose the API to untrusted networks
 
@@ -46,13 +46,13 @@ For substrate scheduling without enabling the feature, see [docs/scheduling.md](
 
 This is a deliberate trust boundary. To reduce blast radius:
 
-- Run Flowgraph on a host dedicated to it
+- Run Symdue on a host dedicated to it
 - Enable Docker user-namespace remapping on the host (`/etc/docker/daemon.json` → `{ "userns-remap": "default" }`)
 - For higher-paranoia deployments, run Custom Python nodes inside Sysbox or Kata-Containers (advanced; not yet documented in this repo)
 
 ### 4. Replace the placeholder secrets before exposure
 
-`server/.env.example` ships with placeholders: `POSTGRES_PASSWORD=your_password`, `MINIO_ROOT_USER=minioadmin / MINIO_ROOT_PASSWORD=minioadmin`, `SECRET_KEY=your-secret-key-change-in-production`. The Docker Compose defaults reference these values directly via `${VAR:-placeholder}` syntax — meaning a `docker compose up` without populating `.env` produces a fully-functional Flowgraph using the documented placeholders.
+`server/.env.example` ships with placeholders: `POSTGRES_PASSWORD=your_password`, `MINIO_ROOT_USER=minioadmin / MINIO_ROOT_PASSWORD=minioadmin`, `SECRET_KEY=your-secret-key-change-in-production`. The Docker Compose defaults reference these values directly via `${VAR:-placeholder}` syntax — meaning a `docker compose up` without populating `.env` produces a fully-functional Symdue using the documented placeholders.
 
 Before any non-localhost deployment, generate real values:
 

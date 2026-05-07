@@ -1,14 +1,14 @@
-# Scheduling workflows in Flowgraph OSS
+# Scheduling workflows in Symdue OSS
 
 The OSS substrate doesn't include a built-in scheduler. The `Event` feature that would have provided one is **disabled by default** for security reasons (see [SECURITY.md § 2](../SECURITY.md)).
 
-This page covers the three patterns most users rely on for scheduled, queue-driven, or webhook-driven workflows in OSS Flowgraph.
+This page covers the three patterns most users rely on for scheduled, queue-driven, or webhook-driven workflows in OSS Symdue.
 
 ---
 
 ## Pattern 1 — External cron + curl
 
-The simplest pattern. Run cron (Linux), launchd (macOS), Task Scheduler (Windows), or a Kubernetes CronJob; have it `curl POST /api/runs` against your Flowgraph instance.
+The simplest pattern. Run cron (Linux), launchd (macOS), Task Scheduler (Windows), or a Kubernetes CronJob; have it `curl POST /api/runs` against your Symdue instance.
 
 ### Linux/macOS crontab example
 
@@ -29,8 +29,8 @@ Find your workflow ID first (UI → workspace → "..." → Copy ID; or `GET /ap
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: flowgraph-daily-sync
-  namespace: flowgraph
+  name: symdue-daily-sync
+  namespace: symdue
 spec:
   schedule: "0 9 * * *"   # 9am daily
   jobTemplate:
@@ -44,7 +44,7 @@ spec:
             command: ["sh", "-c"]
             args:
               - |
-                curl -sSf -X POST http://flowgraph-backend:8000/api/runs \
+                curl -sSf -X POST http://symdue-backend:8000/api/runs \
                   -H 'Content-Type: application/json' \
                   -d '{"workflow_id":"<workflow-uuid>","input":{}}'
 ```
@@ -53,7 +53,7 @@ spec:
 
 - One-off "run X every N minutes" use cases
 - You already have cron / k8s in your stack
-- You want triggers stored outside Flowgraph (DR / portability)
+- You want triggers stored outside Symdue (DR / portability)
 
 ---
 
@@ -105,7 +105,7 @@ For webhook-driven workflows (GitHub push, Stripe event, calendar bookings, etc.
 
 1. Validates the signature
 2. Translates the payload into a `POST /api/runs` body
-3. Forwards to Flowgraph
+3. Forwards to Symdue
 
 ### Caddy example
 
@@ -114,7 +114,7 @@ api.example.com {
   route /github-webhook {
     @sig header X-Hub-Signature-256 *
     handle @sig {
-      reverse_proxy http://flowgraph-backend:8000 {
+      reverse_proxy http://symdue-backend:8000 {
         rewrite "POST /api/runs"
         header_up Content-Type application/json
         # Use Caddy's request_body / header transforms to reshape
@@ -131,7 +131,7 @@ For payload transforms more complex than Caddy can express, run the receiver as 
 
 - The trigger comes from an external system you don't control
 - You need signature validation
-- You need payload transformation before Flowgraph sees it
+- You need payload transformation before Symdue sees it
 
 ---
 
