@@ -1,0 +1,13 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Help / questions / discuss potential issues
+    url: https://discord.gg/c3ysHGCyqs
+    about: Discord is the help channel — fastest response, and the right place to discuss a potential issue before filing. File a GitHub Issue here once it's a confirmed reproducible bug or a feature request.
+
+  - name: 🛡️ Security disclosure
+    url: https://github.com/vinodydev/symdue_oss/blob/main/SECURITY.md
+    about: Please do NOT open a public issue for security problems. See SECURITY.md for the responsible-disclosure process.
+
+  - name: 💼 Commercial license inquiry
+    url: https://github.com/vinodydev/symdue_oss/blob/main/COMMERCIAL_LICENSE.md
+    about: Embedding Symdue in a commercial SaaS, hyperscaler-class managed service, or shipping proprietary modifications — see COMMERCIAL_LICENSE.md or email vinody.dev@gmail.com.

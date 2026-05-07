@@ -89,3 +89,7 @@ License files: [LICENSE](LICENSE) (overview) · [LICENSE-AGPL](LICENSE-AGPL) (fu
 See [CONTRIBUTING.md](CONTRIBUTING.md). Runtime contributions require signing the [CLA](CLA.md) (one-click via CLA Assistant on first PR; standard for dual-licensed OSS projects). Apache 2.0 SDK / demo contributions accept Developer Certificate of Origin (DCO) sign-off only.
 
 Security disclosures go to [SECURITY.md](SECURITY.md). This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md).
+
+---
+
+Built solo in Hyderabad by [Vinod Y](https://github.com/vinodydev). Reach me at [vinody.dev@gmail.com](mailto:vinody.dev@gmail.com) — happy to talk through self-hosting, NodeType plugin design, or commercial licensing.
