@@ -4,6 +4,26 @@
 
 Visual workflow runtime for AI agents — a durable, replay-safe substrate that turns nodes-and-edges diagrams into running, observable, long-lived workflows.
 
+## Demo
+
+<p align="center">
+  <a href="https://youtu.be/aUr8gr9wKiA">
+    <img src="https://img.youtube.com/vi/aUr8gr9wKiA/maxresdefault.jpg"
+         alt="Symdue Deep Research Demo — 2 min" width="720" />
+  </a>
+  <br />
+  <em>▶ Watch the 2-minute Deep Research demo</em>
+</p>
+
+The demo runs a Deep Research workflow that:
+
+- **Fans out across multiple sources**: parallel `WEB_SEARCH`, `PAPER_SEARCH`, and `PDF_READ` nodes triggered from a single user prompt.
+- **Iterates to refine**: configurable max-iteration loop — initial findings feed back into a second-pass query before the report is produced.
+- **Produces a structured report**: HTML output with executive summary, perspectives, confidence map, and source list — generated from the run's actual retrieved content, not a freeform LLM completion.
+- **Whitelists citations**: only sources that actually exist in the run's retrieval whitelist can be cited; fabricated references are dropped at the storage boundary, not patched in post.
+- **Survives browser refresh**: workflows execute on a Temporal substrate. Closing the tab, refreshing, or restarting the browser does not stop or reset the run; the UI reconnects to the live state on reload.
+- **Per-node observability**: click any node after a run to see its logs, inputs, and outputs — the same data the workflow saw at that step.
+
 > **Status:** early public release. The polished marketing-grade README is on its way; this stub gives you enough to clone, run, and contribute.
 
 ## What's in this repo
