@@ -1,8 +1,19 @@
-# Symdue
+<p align="center">
+  <img src=".github/banner.jpg" alt="Symdue" width="100%" />
+</p>
+
+<p align="center">
+  <a href="https://youtu.be/aUr8gr9wKiA"><img src="https://img.shields.io/badge/▶_DEMO-red?style=for-the-badge" alt="Demo" /></a>
+  <a href="docs/FAQ.md"><img src="https://img.shields.io/badge/DOCS-blue?style=for-the-badge" alt="Docs" /></a>
+  <a href="docs/NODE_TYPE_API.md"><img src="https://img.shields.io/badge/PLUGIN_API-Apache_2.0-green?style=for-the-badge" alt="Plugin API" /></a>
+  <a href="https://discord.gg/c3ysHGCyqs"><img src="https://img.shields.io/badge/DISCORD-Join-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/LICENSE-AGPL_v3_+_Apache_2.0_SDK-orange?style=for-the-badge" alt="License" /></a>
+  <a href="https://github.com/vinodydev"><img src="https://img.shields.io/badge/BUILT_BY-vinodydev-black?style=for-the-badge" alt="Built by" /></a>
+</p>
+
+<p align="center"><b>Visual workflow runtime for AI agents — durable, replay-safe, container-isolated.</b></p>
 
 > **Note**: This project's working name was "Flowgraph" during early development. Renamed to **Symdue** ahead of public launch. The demo video below was recorded under the old name and will be re-recorded shortly.
-
-Visual workflow runtime for AI agents — a durable, replay-safe substrate that turns nodes-and-edges diagrams into running, observable, long-lived workflows.
 
 ## Demo
 
