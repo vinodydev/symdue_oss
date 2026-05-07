@@ -8,7 +8,7 @@
   <a href="docs/NODE_TYPE_API.md"><img src="https://img.shields.io/badge/PLUGIN_API-Apache_2.0-green?style=for-the-badge" alt="Plugin API" /></a>
   <a href="https://discord.gg/c3ysHGCyqs"><img src="https://img.shields.io/badge/DISCORD-Join-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/LICENSE-AGPL_v3_+_Apache_2.0_SDK-orange?style=for-the-badge" alt="License" /></a>
-  <a href="https://github.com/vinodydev"><img src="https://img.shields.io/badge/BUILT_BY-vinodydev-black?style=for-the-badge" alt="Built by" /></a>
+  <a href="https://github.com/vinodydev"><img src="https://img.shields.io/badge/BUILT_BY-vinody-black?style=for-the-badge" alt="Built by" /></a>
 </p>
 
 <p align="center"><b>Visual workflow runtime for AI agents — durable, replay-safe, container-isolated.</b></p>
