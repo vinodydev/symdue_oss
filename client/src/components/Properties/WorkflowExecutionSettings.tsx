@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (c) 2026 Symdue contributors
 /**
  * Workflow execution settings — timeouts for this workflow.
  * Shown in the Properties panel when no node/edge is selected.

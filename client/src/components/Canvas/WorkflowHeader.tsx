@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (c) 2026 Symdue contributors
 /**
  * Workflow header component - displays and allows renaming of the current workflow
  */

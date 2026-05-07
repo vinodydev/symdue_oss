@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Symdue contributors
 """Add node name column
 
 Revision ID: add_node_name_001

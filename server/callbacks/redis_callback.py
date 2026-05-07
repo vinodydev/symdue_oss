@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Symdue contributors
 """
 Redis callback handler for LangGraph execution
 Captures node outputs and publishes status updates via Redis Pub/Sub

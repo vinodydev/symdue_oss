@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Symdue contributors
 """
 Tests for issue15 — per-edge value-change detection in the AND-join gate.
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (c) 2026 Symdue contributors
 /**
  * Settings page — split-view with Model Registry and General tabs.
  * Matching reference (code.jsx lines 602-678).

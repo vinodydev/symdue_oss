@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (c) 2026 Symdue contributors
 /**
  * Send Signal panel — shown in RunHistory when a run is in "waiting" status.
  * Allows sending a signal to resume a waiting workflow.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (c) 2026 Symdue contributors
 /**
  * Node properties editor - Matching reference design
  * Includes execution status display during/after graph runs.

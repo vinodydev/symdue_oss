@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (c) 2026 Symdue contributors
 /**
  * Form for node type metadata (name, description, icon, category, supports iterator).
  * Used in NodeTypeDetailCode (right panel) and NodeTypeDetailPropertiesOnly.

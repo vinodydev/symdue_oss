@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (c) 2026 Symdue contributors
 /**
  * Node component — plain HTML div, matching reference architecture.
  * Rendered as an absolutely-positioned div inside the CSS-transformed canvas layer.

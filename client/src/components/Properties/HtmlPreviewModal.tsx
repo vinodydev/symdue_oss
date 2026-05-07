@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (c) 2026 Symdue contributors
 /**
  * Fullscreen modal for rendering HTML inside a sandboxed iframe.
  * Used by html-viewer nodes (issue17) for an expanded preview.

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Symdue contributors
 """Add default MinIO storage configuration
 
 Revision ID: add_default_minio_001

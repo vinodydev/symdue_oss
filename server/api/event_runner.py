@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Symdue contributors
 """
 Event script runner — executes an event's Python script and records the invocation.
 """

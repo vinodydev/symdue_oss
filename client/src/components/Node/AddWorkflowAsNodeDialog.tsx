@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (c) 2026 Symdue contributors
 /**
  * Dialog to add an existing workflow as a node (workflow reference). Double-click opens that workflow.
  */

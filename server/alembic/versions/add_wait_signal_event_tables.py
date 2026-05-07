@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Symdue contributors
 """Add workflow_waits, events, and event_invocations tables
 
 Revision ID: add_wait_signal_event_001

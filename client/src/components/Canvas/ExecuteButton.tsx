@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (c) 2026 Symdue contributors
 /**
  * Execute Graph floating button + pre-flight input modal.
  * Matching reference (code.jsx lines 498-510, 706-726).

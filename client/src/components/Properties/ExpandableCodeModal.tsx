@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (c) 2026 Symdue contributors
 /**
  * Editable modal with PythonCodeEditor for Python code; Save/Cancel and optional Copy.
  */

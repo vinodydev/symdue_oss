@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (c) 2026 Symdue contributors
 /**
  * Node type palette component - Matching reference design
  * Now includes tabs for Built-in, Node Templates, and Workflow Templates

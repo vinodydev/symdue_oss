@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Symdue contributors
 """
 API Integration Tests - Real HTTP requests to running server
 These tests verify the API works end-to-end, not just unit tests

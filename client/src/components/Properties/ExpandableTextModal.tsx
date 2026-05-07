@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (c) 2026 Symdue contributors
 /**
  * Editable modal with large textarea for text fields (Input Value, Prompt Template, Requirements).
  * Save/Cancel and optional Copy.

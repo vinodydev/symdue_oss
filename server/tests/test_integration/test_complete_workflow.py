@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Symdue contributors
 """
 Integration test for complete workflow: Create workspace → Add nodes → Create edges → Test
 """

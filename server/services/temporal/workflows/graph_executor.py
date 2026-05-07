@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Symdue contributors
 """
 Graph execution workflow (Temporal)
 Orchestrates graph execution via activities. The workflow itself does NO heavy

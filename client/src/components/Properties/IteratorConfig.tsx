@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (c) 2026 Symdue contributors
 import React from 'react';
 import type { Node, Edge } from '@/types';
 import { getUpstreamNodes } from '@/utils/nodeUtils';

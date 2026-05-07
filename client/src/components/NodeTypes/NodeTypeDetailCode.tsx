@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (c) 2026 Symdue contributors
 /**
  * Detail for code-based node types: center = code editor (+ translator tab), right = properties form.
  */

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Symdue contributors
 """Add execution_config to workflows for per-workflow timeouts
 
 Revision ID: add_execution_config_001

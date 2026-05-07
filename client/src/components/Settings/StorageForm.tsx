@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (c) 2026 Symdue contributors
 /**
  * Storage configuration form component
  * Supports all storage types: PostgreSQL, Redis, MongoDB, Chroma, LocalFile, MinIO

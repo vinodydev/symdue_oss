@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Symdue contributors
 #!/usr/bin/env python3
 """
 Test database and schema setup after Phase 1 implementation

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Symdue contributors
 """
 LangGraph compiler — converts a JSON graph structure to a compiled
 LangGraph ``StateGraph`` ready for ``ainvoke()``.

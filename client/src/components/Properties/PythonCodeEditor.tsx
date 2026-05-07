@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (c) 2026 Symdue contributors
 /**
  * Python code editor: CodeMirror 6 when deps are installed, else fallback textarea.
  * Used in NodeProperties panel and in ExpandableCodeModal.

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Symdue contributors
 """
 Zero-config helper for ad-hoc local-filesystem reads inside a Custom Python node.
 

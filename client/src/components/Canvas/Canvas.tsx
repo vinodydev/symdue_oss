@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (c) 2026 Symdue contributors
 /**
  * Infinite canvas with zoom/pan — reference-matching architecture.
  * Nodes are plain HTML divs; SVG is used only for edges.

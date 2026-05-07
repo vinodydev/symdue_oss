@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Symdue contributors
 """
 Create a Workflow from template_data (nodes + edges snapshot).
 Used by: create-edit-copy, from-workflow-template (add workflow node), and create_workflow_from_template (workspaces).

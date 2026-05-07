@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Symdue contributors
 """
 Tests for issue16 — verify that asyncio.to_thread wrapping of docker-py
 calls actually allows sibling fan-out coroutines to run concurrently.

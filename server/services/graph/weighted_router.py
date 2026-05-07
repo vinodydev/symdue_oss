@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Symdue contributors
 """
 Weighted router - Implements edge weight routing logic (0.0-1.0)
 This is the core "Weighted Intelligence" feature.

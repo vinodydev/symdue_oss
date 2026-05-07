@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (c) 2026 Symdue contributors
 /**
  * View-only modal for expanded JSON/output content with Copy in header.
  * Used for Execution Inputs (History) and Execution Outputs (History).

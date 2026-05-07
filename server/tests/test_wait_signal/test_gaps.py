@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Symdue contributors
 """
 Tests for the wait/signal/event system gaps (Gaps 1-5).
 Tests config settings, runtime.run_workflow, wait timeout, scheduler, queue listener.

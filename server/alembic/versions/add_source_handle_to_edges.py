@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Symdue contributors
 """Add source_handle to workflow_edges for condition node branches
 
 Revision ID: add_source_handle_001

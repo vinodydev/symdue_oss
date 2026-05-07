@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Symdue contributors
 """
 Embedding service — runs in the backend, lazy-loads sentence-transformers
 models on first use, caches them process-wide so subsequent calls are fast.
