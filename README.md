@@ -37,6 +37,35 @@ The demo runs a Deep Research workflow that:
 
 > **Status:** early public release. The polished marketing-grade README is on its way; this stub gives you enough to clone, run, and contribute.
 
+## How Symdue fits next to existing tools
+
+| Tool | What it's great at | Where Symdue is built differently |
+|---|---|---|
+| **n8n** | 600+ pre-built integrations, mature low-code editor, large community | Production durability where lost runs cost real money — workflows survive crashes mid-run, resume from arbitrary nodes, container isolation per code node |
+| **LangGraph / LangChain** | Code-first agent orchestration with strong typed abstractions | Visual canvas alongside the code-first model, channel-signal fan-out, parallel updates with substrate-level reducers |
+| **Temporal alone** | Industry-standard durable execution (Snap, Stripe, Coinbase) | Workflow editor + AI-shaped node abstractions on top of Temporal — Symdue *is* Temporal underneath |
+| **Inngest** | Durable step functions with memoized resume, JS/TS-first | Visual canvas, Python + LLM-shaped node abstractions, declarative storage injection, container-isolated code nodes |
+| **Trigger.dev** | TypeScript SDK with type-safety, CRIU checkpoint/resume, multi-env, atomic versioning | Visual canvas, Python + LLM primitives, declarative storage injection, container isolation, self-hosted-first |
+| **Airflow / Prefect** | Battle-tested for scheduled batch ETL, mature schedulers | AI-agent-shaped workflows — LLM calls, HITL, iterative loops with feedback edges, replay-with-modified-inputs |
+
+See [docs/COMPARISON.md](docs/COMPARISON.md) for per-tool deep-dives, citation-backed claims, and the full capability matrix.
+
+### Symdue is for
+
+- Teams running AI agent workflows in production where lost runs, hallucinated citations, or unrecoverable failures cost real money
+- Engineering teams wanting a visual canvas + Temporal-backed durability + container isolation + declarative storage in one substrate
+- Self-hosters who need full audit trails, replay-from-checkpoint, and no paywalled enterprise tier
+- Builders shipping iterative agents (research, document analysis, lead pipelines) that need to survive crashes, restarts, and 6-hour LLM stalls
+- Operators who want non-engineers to inspect and understand running workflows on a canvas
+
+### Symdue is not for
+
+- Simple cron-style ETL — use a dedicated scheduler
+- Single-shot agent prototypes — overkill
+- Teams happy with stateless workflows that re-run from scratch on any failure
+- SaaS-to-SaaS automation without code or AI — purpose-built tools win that battle
+- TypeScript-first teams who don't want a visual canvas — Inngest or Trigger.dev is a better shape
+
 ## What's in this repo
 
 - `server/` — FastAPI backend, Temporal workers, LangGraph executor, signal/wait/event runtime, storage backends.
