@@ -116,8 +116,20 @@ services_running() {
 }
 
 images_built() {
+    # Are all images this compose project expects already built locally?
+    # Note: `docker compose images` only lists images for *existing containers*;
+    # after `docker compose down`, it returns empty even when the images
+    # themselves are still in Docker's local store. So we ask compose for
+    # the expected image names and inspect each one independently.
     cd "$SCRIPT_DIR"
-    docker compose images --quiet 2>/dev/null | grep -q .
+    local expected
+    expected="$(docker compose config --images 2>/dev/null)" || return 1
+    [ -z "$expected" ] && return 1
+    while IFS= read -r img; do
+        [ -z "$img" ] && continue
+        docker image inspect "$img" >/dev/null 2>&1 || return 1
+    done <<< "$expected"
+    return 0
 }
 
 print_endpoints() {
@@ -140,6 +152,30 @@ sed_inplace_init() {
     else
         SED_INPLACE=(sed -i)
     fi
+}
+
+# Single source of truth for env vars: backend reads `server/.env` (via the
+# bind-mount + WORKDIR /app), compose reads `setup/.env` (its CWD). Without
+# a symlink they can drift — typical symptom is postgres auth failure
+# because compose tells postgres password A while backend authenticates
+# with password B. We force `setup/.env` to be a symlink to `../server/.env`
+# every time we touch the stack lifecycle (init / start / rebuild).
+ensure_setup_env_symlink() {
+    local target="../server/.env"
+    local link="$SCRIPT_DIR/.env"
+    if [ -L "$link" ] && [ "$(readlink "$link")" = "$target" ]; then
+        return 0
+    fi
+    if [ -e "$link" ] && [ ! -L "$link" ]; then
+        # Existing regular file — back up before replacing so secrets aren't
+        # silently lost if compose-only env vars happened to live there.
+        local backup="$link.before-symlink-$(date +%Y%m%d%H%M%S)"
+        mv "$link" "$backup"
+        info "Backed up prior setup/.env to ${backup#$SCRIPT_DIR/}"
+    elif [ -L "$link" ]; then
+        rm "$link"
+    fi
+    ln -s "$target" "$link"
 }
 
 set_env_var() {
@@ -199,9 +235,15 @@ cmd_init() {
         echo "DOCKER_GID=${docker_gid}" >> "$SERVER_ENV"
     fi
 
-    chmod 600 "$SERVER_ENV"
-    ok "Generated $SERVER_ENV (mode 600)"
+    # Mode 644 (not 600): backend container runs as UID 1001 (flowgraph) but
+    # .env is owned by host UID; mode 600 makes it unreadable across the
+    # bind-mount. 644 is fine for locally-generated dev secrets.
+    chmod 644 "$SERVER_ENV"
+    ok "Generated $SERVER_ENV (mode 644)"
     info "Host docker group GID detected: ${docker_gid}"
+
+    ensure_setup_env_symlink
+    ok "setup/.env → ../server/.env (single source of truth)"
 
     if [ "$interactive" -eq 1 ]; then
         cmd_init_interactive
@@ -259,7 +301,16 @@ cmd_start() {
         exit 1
     fi
 
+    # Idempotent self-heal: ensure .env is readable across the bind-mount.
+    # Backend container runs as UID 1001 (flowgraph); a host-side mode-600
+    # .env owned by a different UID would fail with PermissionError.
+    chmod 644 "$SERVER_ENV"
+
     cd "$SCRIPT_DIR"
+
+    # Idempotent self-heal: ensure setup/.env is the symlink to ../server/.env
+    # so compose and backend read the same source of truth.
+    ensure_setup_env_symlink
 
     if ! docker info >/dev/null 2>&1; then
         err "Docker daemon not running. Start Docker Desktop / dockerd first."
@@ -283,7 +334,7 @@ cmd_start() {
     fi
 
     if ! images_built; then
-        info "Images not built yet — building (first-time only, ~5-10 min)..."
+        info "Images missing — building (~5-10 min on cold cache, fast on warm)..."
         docker compose build
     else
         info "Images present — skipping build. Use 'rebuild' to force from scratch."
@@ -347,6 +398,13 @@ cmd_rebuild() {
             *) info "Aborted."; exit 0 ;;
         esac
     fi
+
+    # Idempotent self-heal: same as cmd_start. After down -v + rebuild,
+    # we still need .env readable across the bind-mount when up -d runs,
+    # AND we need setup/.env to point at server/.env so compose + backend
+    # agree on POSTGRES_PASSWORD etc.
+    [ -f "$SERVER_ENV" ] && chmod 644 "$SERVER_ENV"
+    ensure_setup_env_symlink
 
     set -a
     [ -f "$SERVER_ENV" ] && . "$SERVER_ENV"

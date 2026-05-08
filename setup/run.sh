@@ -70,8 +70,12 @@ if [ ! -f "../server/.env" ]; then
     "${SED_INPLACE[@]}" "s|^MINIO_ROOT_USER=.*|MINIO_ROOT_USER=${MINIO_ROOT_USER}|g" ../server/.env
     "${SED_INPLACE[@]}" "s|^MINIO_ROOT_PASSWORD=.*|MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}|g" ../server/.env
 
-    chmod 600 ../server/.env
-    echo -e "${GREEN}✓ Generated ../server/.env (mode 600)${NC}"
+    # Mode 644 (not 600): backend container runs as UID 1001 (flowgraph) but
+    # the bind-mounted .env is owned by host UID; mode 600 makes it unreadable
+    # across the bind-mount boundary. 644 is fine for locally-generated dev
+    # secrets — server/.env lives under home-directory permissions already.
+    chmod 644 ../server/.env
+    echo -e "${GREEN}✓ Generated ../server/.env (mode 644)${NC}"
 fi
 
 # Export the just-generated (or pre-existing) values so docker compose can
