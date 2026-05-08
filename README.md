@@ -75,14 +75,23 @@ See [docs/COMPARISON.md](docs/COMPARISON.md) for per-tool deep-dives, citation-b
 ## Quickstart
 
 ```bash
-cp server/.env.example server/.env
-cd setup
-docker compose up
+# First time
+./setup/symdue.sh init    # generates .env with random secrets, auto-detects Docker GID
+./setup/symdue.sh start   # launches the stack (builds images on first run)
+
+# Subsequent runs
+./setup/symdue.sh start          # bring up if stopped
+./setup/symdue.sh logs backend   # tail a service
+./setup/symdue.sh rebuild        # full clean rebuild after pulling upstream changes
+./setup/symdue.sh stop           # halt the stack
+./setup/symdue.sh help           # full command list
 ```
 
-Then open `http://localhost:3000`.
+Then open `http://localhost:3000`. Backend Swagger UI at `http://localhost:8000/docs`.
 
-For non-Docker dev setup, see [`setup/setup-mac.sh`](setup/setup-mac.sh) and [`setup/setup-db.sh`](setup/setup-db.sh).
+`symdue.sh` auto-detects your host's docker group GID, so `docker.sock` bind-mounts work without manual env-var prefixes.
+
+For non-Docker dev setup, see [`setup/setup-mac.sh`](setup/setup-mac.sh) and [`setup/setup-db.sh`](setup/setup-db.sh). The older [`setup/run.sh`](setup/run.sh) still works but is deprecated in favor of `symdue.sh`.
 
 ## What's here vs. what's not
 

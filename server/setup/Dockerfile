@@ -20,11 +20,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Non-root user. UID 1001 to avoid colliding with stock node:slim's `node`
 # user (1000) — relevant when both images are on the same docker host.
 ARG DOCKER_GID=999
-RUN groupadd -r flowgraph \
- && useradd -r -g flowgraph -u 1001 -m -d /home/flowgraph flowgraph \
- && (groupmod -g ${DOCKER_GID} docker 2>/dev/null \
-     || groupadd -g ${DOCKER_GID} docker) \
- && usermod -aG docker flowgraph
+RUN set -eux; \
+    groupadd -r flowgraph; \
+    useradd --no-log-init -g flowgraph -u 1001 -m -d /home/flowgraph flowgraph; \
+    # The docker group inside the container must share GID with the host's
+    # /var/run/docker.sock owner-group so the bind-mounted socket is readable.
+    # Use -o to allow shared GIDs in case the target GID already belongs to
+    # another group in the base image. Idempotent: skip if already correct.
+    EXISTING_GID="$(getent group docker | cut -d: -f3 || true)"; \
+    if [ -z "$EXISTING_GID" ]; then \
+        groupadd -o -g "${DOCKER_GID}" docker; \
+    elif [ "$EXISTING_GID" != "${DOCKER_GID}" ]; then \
+        groupmod -o -g "${DOCKER_GID}" docker; \
+    fi; \
+    usermod -aG docker flowgraph
 
 # Install Python deps as root (writes into /usr/local/lib/...).
 COPY requirements.txt .

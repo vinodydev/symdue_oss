@@ -1,10 +1,26 @@
 #!/bin/bash
-# run.sh - Execution script for GraphMind Orchestrator
+# run.sh - Execution script for Symdue (legacy)
+#
+# DEPRECATED: please use ./setup/symdue.sh instead. run.sh is kept for
+# backwards compatibility through v0.2 and will be removed afterwards.
 
 set -e
 
+# Yellow without depending on tput (works in any terminal).
+_YELLOW='\033[1;33m'
+_NC='\033[0m'
+
+echo -e "${_YELLOW}⚠  run.sh is deprecated.${_NC} Use ./setup/symdue.sh instead:"
+echo "    ./setup/symdue.sh init      # first-time setup (generates .env)"
+echo "    ./setup/symdue.sh start     # launch the stack"
+echo "    ./setup/symdue.sh help      # full subcommand list"
+echo ""
+echo "Continuing with run.sh in 3 seconds (Ctrl-C to abort)..."
+sleep 3
+echo ""
+
 echo "========================================="
-echo "GraphMind Orchestrator - Execution Script"
+echo "Symdue - Execution Script (legacy run.sh)"
 echo "========================================="
 echo ""
 
