@@ -216,8 +216,18 @@ class ApiClient {
     return map[status] || 'running';
   }
 
+  /**
+   * List runs for a workspace WITHOUT per-run `snapshot` payloads (`?summary=true`).
+   *
+   * Snapshots can reach ~1 MB per run (node_outputs, iteration history, etc.).
+   * Embedding them in the list response made workspace mount fetch multi-MB
+   * and stall the canvas. The active run's full snapshot is loaded separately
+   * via `getRun()` once the summary list lands; see App.tsx::loadRuns.
+   */
   async getRuns(workspaceId: string): Promise<Run[]> {
-    const response = await this.client.get(`/api/runs/${workspaceId}`);
+    const response = await this.client.get(`/api/runs/${workspaceId}`, {
+      params: { summary: true },
+    });
     return (response.data || []).map((r: any) => this.normalizeRun(r));
   }
 

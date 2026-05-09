@@ -11,6 +11,7 @@ import { Node } from '../Node/Node';
 import { Edge } from '../Edge/Edge';
 import { ZoomControls } from './ZoomControls';
 import { ExecuteButton } from './ExecuteButton';
+import { ProgressBanner } from './ProgressBanner';
 
 export function Canvas() {
   const {
@@ -378,6 +379,7 @@ export function Canvas() {
       {/* Floating UI (outside the transformed layer) */}
       <ExecuteButton />
       <ZoomControls />
+      <ProgressBanner />
     </div>
   );
 }

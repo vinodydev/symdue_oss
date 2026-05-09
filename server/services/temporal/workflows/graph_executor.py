@@ -69,9 +69,15 @@ class GraphExecutorWorkflow:
                 ),
             )
             
-            # Wait for resume signal
+            # Wait for resume signal.
+            # No timeout: workflow.wait_condition with a timeout raises
+            # asyncio.TimeoutError when the predicate is still false at the
+            # deadline. The previous 1-second timeout was uncaught and
+            # cascaded into a CancelledError that ended every paused run with
+            # an error. Without a timeout, wait_condition only returns once
+            # the resume signal handler sets _resume_requested = True.
             while self._is_paused and not self._resume_requested:
-                await workflow.wait_condition(lambda: self._resume_requested, timeout=timedelta(seconds=1))
+                await workflow.wait_condition(lambda: self._resume_requested)
             
             if self._resume_requested:
                 self._is_paused = False

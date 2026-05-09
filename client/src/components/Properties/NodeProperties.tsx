@@ -333,7 +333,7 @@ export function NodeProperties({ node }: NodePropertiesProps) {
               <div>Started: {new Date(selectedRun.started_at).toLocaleString()}</div>
             )}
             {selectedRun.duration && (
-              <div>Duration: {(selectedRun.duration / 1000).toFixed(2)}s</div>
+              <div>Duration: {selectedRun.duration.toFixed(2)}s</div>
             )}
             {selectedRun.status && (
               <div>Status: <span className="text-slate-300 uppercase">{selectedRun.status}</span></div>

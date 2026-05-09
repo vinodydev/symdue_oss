@@ -44,6 +44,15 @@ interface AppState {
   nodeStatuses: Record<string, NodeStatus>;
   runs: Run[];
   selectedRunId: string | null;
+  // Wall-clock ms of the last NODE_STATUS / WORKFLOW_STATUS / heartbeat frame.
+  // Used to surface a "no progress detected" banner when a run goes silent.
+  lastActivityAt: number | null;
+  // Monotonic counter that gets bumped when something invalidates the seed-once
+  // guard (e.g. WS reconnect after docker down/up). The App.tsx seed effect
+  // tracks this nonce alongside lastSeededRunIdRef — when it changes, the
+  // effect re-seeds even for the same run-id and during a live run, so the
+  // canvas catches up to a freshly-refetched snapshot.
+  seedNonce: number;
 
   // LLM Config state
   llmConfigs: LLMConfig[];
@@ -93,6 +102,8 @@ interface AppState {
   addRun: (run: Run) => void;
   updateRun: (runId: string, updates: Partial<Run>) => void;
   setSelectedRunId: (runId: string | null) => void;
+  markActivity: () => void;
+  bumpSeedNonce: () => void;
 
   // Actions - LLM Configs
   setLLMConfigs: (configs: LLMConfig[]) => void;
@@ -126,6 +137,8 @@ export const useAppStore = create<AppState>()(
       currentRunId: null,
       isRunning: false,
       nodeStatuses: {},
+      lastActivityAt: null,
+      seedNonce: 0,
       runs: [],
       selectedRunId: null,
       llmConfigs: [],
@@ -280,6 +293,12 @@ export const useAppStore = create<AppState>()(
       }),
       setSelectedRunId: (runId) => set((state) => {
         state.selectedRunId = runId;
+      }),
+      markActivity: () => set((state) => {
+        state.lastActivityAt = Date.now();
+      }),
+      bumpSeedNonce: () => set((state) => {
+        state.seedNonce = (state.seedNonce ?? 0) + 1;
       }),
 
       // LLM Config actions

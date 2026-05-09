@@ -1132,7 +1132,13 @@ async def _execute_with_langgraph(
     heartbeat_task = asyncio.create_task(heartbeat_loop())
 
     try:
-        # Stream with "values" to get full state after each step; capture for partial on exception
+        # Stream with "values" to get full state after each step; capture for partial on exception.
+        # Emit a WORKFLOW_HEARTBEAT event every ~5 sec so the canvas can show activity even
+        # during loop churn that doesn't fire individual node start/end events
+        # (e.g. EXIT_GATE iterations where LangGraph internal steps advance without
+        # triggering node-level callbacks).
+        import time as _time
+        last_heartbeat_at = _time.monotonic()
         async for state_chunk in compiled_graph.astream(base_state, stream_mode="values"):
             if isinstance(state_chunk, dict):
                 last_state = dict(state_chunk)
@@ -1142,6 +1148,41 @@ async def _execute_with_langgraph(
                     prev_state=prev_state,
                 )
                 prev_state = dict(last_state)
+                now_mono = _time.monotonic()
+                if now_mono - last_heartbeat_at >= 5.0:
+                    last_heartbeat_at = now_mono
+                    await publish_node_status(
+                        run_id,
+                        "__workflow__",
+                        "heartbeat",
+                        {
+                            "step_count": last_state.get("_step_count"),
+                            "last_executed_node_id": last_state.get("last_executed_node_id"),
+                            "next_node_id": last_state.get("next_node_id"),
+                        },
+                    )
+                # Soft-pause check: the workflow-level Pause signal sets
+                # `run:{run_id}:paused` in Redis (see api/runs.py::pause_run).
+                # We honour it at chunk boundaries so the user's Pause click
+                # actually halts mid-loop instead of waiting for the entire
+                # graph activity to finish. Heartbeats keep firing while
+                # paused so Temporal doesn't time out the activity.
+                paused = await _is_run_paused(run_id)
+                while paused:
+                    activity.heartbeat(
+                        f"paused at step {last_state.get('_step_count')}"
+                    )
+                    await publish_node_status(
+                        run_id,
+                        "__workflow__",
+                        "heartbeat",
+                        {
+                            "step_count": last_state.get("_step_count"),
+                            "paused": True,
+                        },
+                    )
+                    await asyncio.sleep(1.0)
+                    paused = await _is_run_paused(run_id)
         heartbeat_task.cancel()
         try:
             await heartbeat_task
@@ -2446,6 +2487,32 @@ async def publish_node_status(
         await redis_client.close()
     except Exception as e:
         logger.warning(f"Failed to publish node status: {e}")
+
+
+async def _is_run_paused(run_id: str) -> bool:
+    """
+    Check the soft-pause flag set by the API pause endpoint.
+
+    Workflow-level pause via Temporal signal only takes effect at activity
+    boundaries (before/after `execute_graph_activity`). To honour pause
+    *during* a long graph activity, the API endpoint also writes a Redis
+    flag `run:{run_id}:paused` that we poll between LangGraph stream chunks.
+
+    Best-effort: any Redis error returns False (don't trap a workflow in a
+    spurious pause if Redis hiccups).
+    """
+    import redis.asyncio as redis
+    from config.settings import get_settings
+    try:
+        settings = get_settings()
+        client = await redis.from_url(settings.redis_url, decode_responses=True)
+        try:
+            return bool(await client.exists(f"run:{run_id}:paused"))
+        finally:
+            await client.close()
+    except Exception as e:
+        logger.warning(f"Failed to read pause flag for run {run_id}: {e}")
+        return False
 
 
 async def _set_redis_current_node(run_id: str, node_id: str) -> None:

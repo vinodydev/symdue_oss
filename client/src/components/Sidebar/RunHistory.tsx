@@ -238,9 +238,17 @@ export function RunHistory() {
                     : '—'}
                 </span>
                 <span>
-                  {run.duration ? `${(run.duration / 1000).toFixed(1)}s` : run.status}
+                  {run.duration ? `${run.duration.toFixed(1)}s` : run.status}
                 </span>
               </div>
+              {(run.status === 'failed' || run.status === 'cancelled') && run.error_message && (
+                <div
+                  className="mt-1 text-[9px] text-red-400/80 italic line-clamp-2 leading-snug"
+                  title={run.error_message}
+                >
+                  {run.error_message.trim() || 'Run failed'}
+                </div>
+              )}
               {run.parent_run_id && (
                 <div
                   className="mt-1.5 text-[9px] text-slate-500 flex items-center gap-1"

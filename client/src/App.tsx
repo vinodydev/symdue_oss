@@ -3,7 +3,7 @@
 /**
  * Main App component
  */
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { AppLayout } from './components/AppLayout';
 import { Canvas } from './components/Canvas/Canvas';
 import { WorkflowHeader } from './components/Canvas/WorkflowHeader';
@@ -38,7 +38,9 @@ function App() {
     setSelectedNodeTypeId,
     nodes,
     updateNodeStatus,
+    clearNodeStatuses,
     isRunning,
+    seedNonce,
   } = useAppStore();
 
   // Load workspaces + global data on mount
@@ -74,15 +76,71 @@ function App() {
   // WebSocket connection
   useWebSocket(currentWorkspaceId);
 
-  // Seed node statuses from active run's snapshot (fixes completed nodes after refresh/reconnect).
-  // Skip while a run is in progress so WebSocket NODE_STATUS is the single source of truth;
-  // otherwise loops would never show a node as "running" again after its first completion.
+  // When the user clicks a historical run in the history sidebar, the runs list
+  // doesn't carry a snapshot for it (summary mode). Fetch it lazily so the failed
+  // node highlights and the resume-from-checkpoint button can render.
   useEffect(() => {
-    if (isRunning) return;
+    if (!currentWorkspaceId || !selectedRunId) return;
+    const target = runs.find((r) => r.id === selectedRunId);
+    if (!target || target.snapshot) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const fullRun = await api.getRun(currentWorkspaceId, selectedRunId);
+        if (cancelled) return;
+        const latest = useAppStore.getState().runs;
+        setRuns(latest.map((r) => (r.id === fullRun.id ? fullRun : r)));
+      } catch (err) {
+        console.error('Failed to hydrate selected run snapshot:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRunId, currentWorkspaceId, runs, setRuns]);
+
+  // Seed node statuses from active run's snapshot.
+  //
+  // Two scenarios this serves:
+  //   1. User views a historical run (isRunning=false) — re-paint the canvas
+  //      from snapshot every time `runs`/selection changes.
+  //   2. User reloads / reconnects DURING an active run (isRunning=true) —
+  //      paint already-completed nodes ONCE from the snapshot, then let the
+  //      WebSocket NODE_STATUS stream take over.
+  //
+  // Without the seed-once guard, scenario 2 leaves the canvas mostly blank:
+  // the WS only emits status for nodes that fire AFTER reconnect, so nodes
+  // already finished pre-reload would never get their green checkmark.
+  // With the guard, we paint once on first mount-with-snapshot, then bail —
+  // so loop iterations and mid-flight running indicators from WS aren't
+  // overridden by stale snapshot data.
+  const lastSeededRunIdRef = useRef<string | null>(null);
+  const lastSeededNonceRef = useRef<number>(-1);
+  useEffect(() => {
     const activeRun =
       runs.find((r) => r.id === (currentRunId ?? selectedRunId)) ??
       runs.find((r) => r.status === 'running');
     if (!activeRun?.snapshot?.node_outputs || nodes.length === 0) return;
+    // During a live run, normally bail after the first seed so WS NODE_STATUS
+    // can drive the canvas. EXCEPT when seedNonce changes — that signals
+    // something forced a snapshot refetch (e.g. WS reconnect after docker
+    // down/up dropped events) and we need to repaint to catch up.
+    if (
+      isRunning &&
+      lastSeededRunIdRef.current === activeRun.id &&
+      lastSeededNonceRef.current === seedNonce
+    ) {
+      return;
+    }
+    lastSeededRunIdRef.current = activeRun.id;
+    lastSeededNonceRef.current = seedNonce;
+
+    // When viewing a historical / finished run, wipe stale statuses first so
+    // ghost "running" spinners or greens from a previous selection don't
+    // bleed into this run's display. For live runs we rely on the seed-once
+    // guard above to avoid overriding mid-flight WS updates, so don't clear.
+    if (!isRunning) clearNodeStatuses();
+
     const outputs = activeRun.snapshot.node_outputs as Record<string, { error?: string } | unknown>;
     nodes.forEach((node) => {
       const entry = outputs[node.id] ?? outputs[node.name ?? ''];
@@ -101,7 +159,25 @@ function App() {
         updateNodeStatus(node.id, 'success');
       }
     });
-  }, [runs, currentRunId, selectedRunId, nodes, updateNodeStatus, isRunning]);
+
+    // For failed / cancelled runs, the snapshot's node_outputs only has entries
+    // for nodes that completed — the node where execution actually stopped is
+    // missing. Mark that node red so users see WHERE the run died, not just
+    // greens for the survivors. `next_node_id` (LangGraph's planned next step)
+    // is the most accurate cursor; `last_executed_node_id` is the fallback.
+    if (activeRun.status === 'failed' || activeRun.status === 'cancelled') {
+      const snap = activeRun.snapshot as Record<string, unknown>;
+      const failurePointId =
+        (snap.next_node_id as string | undefined) ??
+        (snap.last_executed_node_id as string | undefined);
+      if (failurePointId) {
+        const node = nodes.find(
+          (n) => n.id === failurePointId || n.name === failurePointId,
+        );
+        if (node) updateNodeStatus(node.id, 'error');
+      }
+    }
+  }, [runs, currentRunId, selectedRunId, nodes, updateNodeStatus, clearNodeStatuses, isRunning, seedNonce]);
 
   // Keyboard shortcuts
   useKeyboardShortcuts();
@@ -128,10 +204,28 @@ function App() {
     }
   };
 
+  // The `runs` list comes back without `snapshot` payloads (summary mode in
+  // api.getRuns) so the canvas mount fetch stays small. The seeding effect
+  // above needs `snapshot.node_outputs` for the active run only — pull that
+  // single snapshot lazily and merge it into the runs state. Other runs'
+  // snapshots load on-demand when the user clicks them in the history panel.
   const loadRuns = async (workspaceId: string) => {
     try {
-      const runs = await api.getRuns(workspaceId);
-      setRuns(runs);
+      const summaryRuns = await api.getRuns(workspaceId);
+      setRuns(summaryRuns);
+
+      const activeStatuses = new Set(['running', 'queued', 'paused', 'waiting']);
+      const activeRun =
+        summaryRuns.find((r) => r.id === (currentRunId ?? selectedRunId)) ??
+        summaryRuns.find((r) => activeStatuses.has(r.status));
+      if (!activeRun) return;
+
+      try {
+        const fullRun = await api.getRun(workspaceId, activeRun.id);
+        setRuns(summaryRuns.map((r) => (r.id === fullRun.id ? fullRun : r)));
+      } catch (err) {
+        console.error('Failed to hydrate active run snapshot:', err);
+      }
     } catch (error) {
       console.error('Failed to load runs:', error);
     }

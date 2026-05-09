@@ -317,9 +317,18 @@ async def list_runs(
     workspace_id: UUID,
     limit: int = 50,
     offset: int = 0,
+    summary: bool = False,
     db: Session = Depends(get_db),
 ):
-    """List all runs for a workspace"""
+    """List all runs for a workspace.
+
+    When `summary=true`, the per-run `snapshot` field is omitted from the
+    response. Snapshots routinely reach 500 KB – 1 MB for DEEP_RESEARCH-style
+    workflows, so the default (full) response can hit several MB on workspaces
+    with a handful of runs. The frontend uses summary mode for the canvas-load
+    list and fetches the full snapshot for the active run on demand via
+    `GET /runs/{workspace_id}/{run_id}`.
+    """
     workflow = (
         db.query(Workflow)
         .filter(Workflow.id == workspace_id, Workflow.deleted_at.is_(None))
@@ -350,7 +359,7 @@ async def list_runs(
             completed_at=run.completed_at.isoformat() if run.completed_at else None,
             duration=run.duration,
             error_message=run.error_message,
-            snapshot=run.snapshot,
+            snapshot=None if summary else run.snapshot,
         )
         for run in runs
     ]
@@ -521,6 +530,10 @@ async def cancel_run(
         except Exception as e:
             logger.error(f"Failed to cancel Temporal workflow: {e}")
 
+    # Clear soft-pause flag if set — otherwise a paused-then-cancelled run
+    # would leave a stale flag in Redis that could affect a future re-run.
+    await _set_run_pause_flag(str(run_id), False)
+
     # Update status
     from sqlalchemy.sql import func
 
@@ -536,6 +549,33 @@ async def cancel_run(
         logger.warning(f"Failed to publish cancel status: {e}")
 
     return {"message": "Run cancellation requested"}
+
+
+async def _set_run_pause_flag(run_id: str, paused: bool) -> None:
+    """
+    Toggle the soft-pause flag at `run:{run_id}:paused`.
+
+    Read by `_is_run_paused` inside the LangGraph stream loop (node_executor.py)
+    so a Pause click halts execution at the next chunk boundary instead of
+    waiting for the entire graph activity to finish. Without this flag the
+    Temporal pause signal only takes effect at activity boundaries, which is
+    once before and once after the graph runs — i.e. effectively never for an
+    in-flight workflow.
+    """
+    import redis.asyncio as redis
+    from config.settings import get_settings
+    try:
+        settings = get_settings()
+        client = await redis.from_url(settings.redis_url, decode_responses=True)
+        try:
+            if paused:
+                await client.set(f"run:{run_id}:paused", "1", ex=86400)
+            else:
+                await client.delete(f"run:{run_id}:paused")
+        finally:
+            await client.close()
+    except Exception as e:
+        logger.warning(f"Failed to set pause flag for run {run_id}: {e}")
 
 
 @router.post("/runs/{workspace_id}/{run_id}/pause", status_code=200)
@@ -567,6 +607,11 @@ async def pause_run(
         except Exception as e:
             logger.error(f"Failed to pause Temporal workflow: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to pause workflow: {e}")
+
+    # Soft-pause flag: read by node_executor.py inside the astream loop so the
+    # Pause takes effect at the next chunk boundary instead of waiting for the
+    # entire graph activity to finish.
+    await _set_run_pause_flag(str(run_id), True)
 
     # Update status to paused (will be confirmed by workflow status update)
     run.status = "paused"
@@ -610,6 +655,10 @@ async def resume_run(
         except Exception as e:
             logger.error(f"Failed to resume Temporal workflow: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to resume workflow: {e}")
+
+    # Clear the soft-pause flag so the astream loop in node_executor exits
+    # its sleep and continues consuming chunks.
+    await _set_run_pause_flag(str(run_id), False)
 
     # Update status to running (will be confirmed by workflow status update)
     run.status = "running"
