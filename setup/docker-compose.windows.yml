@@ -1,0 +1,24 @@
+services:
+
+  backend:
+
+    environment:
+      # Windows Docker Desktop TCP daemon
+      DOCKER_HOST: tcp://host.docker.internal:2375
+
+    volumes:
+      - ../server:/app
+      - ../../graph_mind/workspaces:/app/workspaces
+      - ../../graph_mind/cache:/app/cache
+      - ../../graph_mind/storage:/app/storage
+
+  temporal-worker:
+
+    environment:
+      DOCKER_HOST: tcp://host.docker.internal:2375
+
+    volumes:
+      - ../server:/app
+      - ../../graph_mind/workspaces:/app/workspaces
+      - ../../graph_mind/cache:/app/cache
+      - ../../graph_mind/storage:/app/storage

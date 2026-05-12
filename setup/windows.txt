@@ -1,0 +1,3 @@
+.\symdue.ps1 init
+Copy-Item ..\server\.env .\.env -Force
+.\symdue.ps1 start
