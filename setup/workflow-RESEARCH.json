@@ -1,0 +1,393 @@
+{
+  "version": 1,
+  "name": "DEEP_RESEARCH",
+  "transform": {
+    "k": 1,
+    "x": 0,
+    "y": 0
+  },
+  "workflow_config": {},
+  "nodes": [
+    {
+      "id": "5cbc4b9b-bff2-42da-9b7d-b7490b0182a8",
+      "name": "RESEARCH_TOPIC",
+      "node_type_id": "input",
+      "ui_x": 198.22544228870663,
+      "ui_y": 43.838921406185534,
+      "config": {
+        "name": "Input",
+        "value": "",
+        "inputType": "text"
+      },
+      "node_config": {}
+    },
+    {
+      "id": "71ea22ca-675f-4138-b935-c07aee98cdef",
+      "name": "MAX_ITERATIONS",
+      "node_type_id": "input",
+      "ui_x": 1915.941681319036,
+      "ui_y": 512.3025160934055,
+      "config": {
+        "name": "Input",
+        "value": "5",
+        "inputType": "text"
+      },
+      "node_config": {}
+    },
+    {
+      "id": "b1822d5f-2325-4875-ab70-abf1d5b5ed67",
+      "name": "FINAL_REPORT",
+      "node_type_id": "custom-llm",
+      "ui_x": 3170,
+      "ui_y": 280,
+      "config": {
+        "name": "LLM Node",
+        "prompt": "Produce the final research report as Markdown.\n\nTopic: {RESEARCH_TOPIC}\nIterations completed (0-indexed): {STORE_ITER.output.iteration}\nDefinitive answer (latest): {STORE_ITER.output.definitive_answer}\nOpen questions still unresolved: {STORE_ITER.output.open_questions}\n\nAll perspectives accumulated across iterations:\n{STORE_ITER.output.perspectives}\n\nSources consulted (hashes): {STORE_ITER.output.cumulative_source_hashes}\n\nAny image URLs in the data will be auto-loaded as visual evidence \u2014 inline them with `![](url)` only where they materially support a claim.\n\nRequired sections:\n\n## Executive Summary\n4-6 sentences. Lead with the definitive answer.\n\n## Perspectives\nFor each distinct angle, write a `### Angle name` subsection with the summary and a bulleted list of claims, each followed by `[src:HASH]` citations.\n\n## Confidence Map\nWhich findings are well-corroborated, which are single-source, which are contested.\n\n## Open Questions\nList unresolved questions. These are starting points for further research runs.\n\n## Sources\nComma-separated list of all source hashes referenced.\n\nRules:\n- Cite EVERY non-trivial claim with `[src:HASH]`. Hashes come from the data above \u2014 do not invent.\n- Be terse. No marketing voice.\n- If perspectives are empty, say so plainly and stop.",
+        "configId": "bc8e27a0-4031-4d89-8f1a-2ea18855eecf"
+      },
+      "node_config": {}
+    },
+    {
+      "id": "ff96eaf7-1c35-47dd-a357-e98eceea4e1a",
+      "name": "PARSE_PLAN",
+      "node_type_id": "custom-python",
+      "ui_x": 860,
+      "ui_y": 280,
+      "config": {
+        "code": "import json, re\n\ndef parse_json(raw):\n    if not isinstance(raw, str): return {}\n    s = re.sub(r'^```(?:json)?\\s*|\\s*```$', '', raw.strip(), flags=re.DOTALL)\n    m = re.search(r'\\{.*\\}', s, re.DOTALL)\n    if not m: return {}\n    try: return json.loads(m.group(0))\n    except Exception: return {}\n\ndef main(inputs, storages):\n    topic = (inputs.get('RESEARCH_TOPIC') or '').strip()\n    raw = inputs.get('PLANNER', '')\n    plan = parse_json(raw)\n\n    prev = inputs.get('PARSE_PLAN') or {}\n    if isinstance(prev, dict) and 'output' in prev: prev = prev['output']\n    prev_iter = prev.get('iteration', -1) if isinstance(prev, dict) else -1\n    iteration = prev_iter + 1\n\n    web_queries, paper_queries, pdf_urls, llm_prompts = [], [], [], []\n    for a in (plan.get('actions') or []):\n        if not isinstance(a, dict): continue\n        tool = a.get('tool')\n        if tool == 'web_search' and a.get('query'):\n            web_queries.append(a['query'])\n        elif tool == 'paper_search' and a.get('query'):\n            paper_queries.append(a['query'])\n        elif tool == 'pdf_read' and a.get('url'):\n            pdf_urls.append(a['url'])\n        elif tool == 'llm' and a.get('prompt'):\n            llm_prompts.append(a['prompt'])\n\n    return {'output': {\n        'iteration': iteration,\n        'topic': topic,\n        'reasoning': plan.get('reasoning', ''),\n        'web_queries': web_queries,\n        'paper_queries': paper_queries,\n        'pdf_urls': pdf_urls,\n        'llm_prompts': llm_prompts,\n        'action_count': len(plan.get('actions') or [])\n    }}\n",
+        "name": "Python Node",
+        "requirements": ""
+      },
+      "node_config": {}
+    },
+    {
+      "id": "251290b3-8000-44f5-8474-137f10c98677",
+      "name": "PDF_READ",
+      "node_type_id": "custom-python",
+      "ui_x": 1190,
+      "ui_y": 460,
+      "config": {
+        "code": "import io, hashlib, time, requests\n\ndef hid(s): return hashlib.sha256(s.encode('utf-8')).hexdigest()[:16]\n\ndef db_get(db, k):\n    if not db: return None\n    try: return db.get(k)\n    except Exception: return None\n\ndef db_store(db, key, value, metadata=None):\n    \"\"\"Auto-embed write. Falls back to put() if backend lacks store().\"\"\"\n    if not db: return False\n    md = metadata or {}\n    try:\n        db.store(key=key, value=value, metadata=md)\n        return True\n    except Exception:\n        try:\n            db.put(key, {'value': value, 'metadata': md})\n            return True\n        except Exception:\n            return False\n\ndef db_search(db, query, limit=10):\n    if not db: return []\n    try:\n        return db.search(query, limit=limit) or []\n    except Exception:\n        return []\n\ndef get_record(db, k):\n    \"\"\"Backend-agnostic source reader. Handles both store() (value+metadata) and put() (flat dict) shapes.\"\"\"\n    rec = db_get(db, k)\n    if not isinstance(rec, dict): return None\n    if 'value' in rec and isinstance(rec.get('metadata'), dict):\n        return {**rec['metadata'], 'content': rec.get('value', '') or ''}\n    return rec\n\ndef extract(url):\n    try:\n        from pypdf import PdfReader\n        r = requests.get(url, timeout=30, headers={'User-Agent': 'flowgraph-research/1.0'})\n        r.raise_for_status()\n        rd = PdfReader(io.BytesIO(r.content))\n        return '\\n'.join((p.extract_text() or '') for p in rd.pages[:60])[:40000]\n    except Exception as e:\n        return f'[pdf error: {e}]'\n\ndef main(inputs, storages):\n    plan = inputs.get('PARSE_PLAN', {})\n    if isinstance(plan, dict) and 'output' in plan: plan = plan['output']\n    urls = plan.get('pdf_urls', []) if isinstance(plan, dict) else []\n    iteration = plan.get('iteration', 0) if isinstance(plan, dict) else 0\n\n    db = storages.get('vectordb') if storages else None\n    if not urls:\n        return {'output': {'tool': 'pdf_read', 'iteration': iteration, 'urls': [], 'results': [], 'count': 0, 'skipped': True}}\n\n    results = []\n    for url in urls[:4]:\n        h = hid(url)\n        cached = get_record(db, f'source:{h}')\n        if cached:\n            results.append({'hash': h, 'cached': True, 'type': 'pdf', 'url': url})\n            continue\n        text = extract(url)\n        metadata = {\n            'type': 'pdf', 'url': url, 'title': url.rsplit('/', 1)[-1],\n            'found_via': 'planner', 'iteration': iteration, 'fetched_at': int(time.time())\n        }\n        db_store(db, f'source:{h}', text, metadata=metadata)\n        results.append({'hash': h, 'cached': False, 'type': 'pdf', 'url': url, 'preview': text[:400]})\n\n    return {'output': {'tool': 'pdf_read', 'iteration': iteration, 'urls': urls, 'results': results, 'count': len(results), 'skipped': False}}\n",
+        "name": "Python Node",
+        "storages": [
+          {
+            "alias": "vectordb",
+            "storage_id": "<set-via-ui>"
+          }
+        ],
+        "requirements": "requests>=2.0.0\npypdf>=4.0.0"
+      },
+      "node_config": {}
+    },
+    {
+      "id": "775f6451-30dd-43db-b8bb-3fa40148bead",
+      "name": "LLM_ACTION",
+      "node_type_id": "custom-llm",
+      "ui_x": 1190,
+      "ui_y": 640,
+      "config": {
+        "name": "LLM Node",
+        "prompt": "You are the LLM-as-tool inside a research agent. Answer from your own training knowledge \u2014 do NOT speculate or invent sources. Mark uncertainty explicitly.\n\nTopic context: {RESEARCH_TOPIC}\nIteration: {PARSE_PLAN.output.iteration}\n\nPrompts to address (these are specific questions the planner judged answerable from training):\n{PARSE_PLAN.output.llm_prompts}\n\nIf the prompts list above is empty, respond with `{\"answers\":[],\"skipped\":true}` and stop.\n\nFor each prompt, write a concise (3-5 sentence) factual answer drawing on training data. Mark each answer's confidence (high/medium/low) and note explicitly if you're uncertain or if the question is outside your knowledge cutoff.\n\nRespond ONLY with JSON in this shape:\n{\n  \"answers\": [{\"prompt\": \"...\", \"answer\": \"...\", \"confidence\": \"high|medium|low\", \"caveats\": \"...\"}],\n  \"skipped\": false\n}",
+        "configId": "bc8e27a0-4031-4d89-8f1a-2ea18855eecf"
+      },
+      "node_config": {}
+    },
+    {
+      "id": "7874e045-c50e-4a31-a9f2-30f51a1656c6",
+      "name": "PAPER_SEARCH",
+      "node_type_id": "custom-python",
+      "ui_x": 1190,
+      "ui_y": 280,
+      "config": {
+        "code": "import os, hashlib, time, io, requests\nimport xml.etree.ElementTree as ET\n\ndef hid(s): return hashlib.sha256(s.encode('utf-8')).hexdigest()[:16]\n\ndef db_get(db, k):\n    if not db: return None\n    try: return db.get(k)\n    except Exception: return None\n\ndef db_store(db, key, value, metadata=None):\n    \"\"\"Auto-embed write. Falls back to put() if backend lacks store().\"\"\"\n    if not db: return False\n    md = metadata or {}\n    try:\n        db.store(key=key, value=value, metadata=md)\n        return True\n    except Exception:\n        try:\n            db.put(key, {'value': value, 'metadata': md})\n            return True\n        except Exception:\n            return False\n\ndef db_search(db, query, limit=10):\n    if not db: return []\n    try:\n        return db.search(query, limit=limit) or []\n    except Exception:\n        return []\n\ndef get_record(db, k):\n    \"\"\"Backend-agnostic source reader. Handles both store() (value+metadata) and put() (flat dict) shapes.\"\"\"\n    rec = db_get(db, k)\n    if not isinstance(rec, dict): return None\n    if 'value' in rec and isinstance(rec.get('metadata'), dict):\n        return {**rec['metadata'], 'content': rec.get('value', '') or ''}\n    return rec\n\nARXIV_NS = {\n    'atom': 'http://www.w3.org/2005/Atom',\n    'arxiv': 'http://arxiv.org/schemas/atom'\n}\n\ndef arxiv_search(q, k=5):\n    try:\n        r = requests.get('http://export.arxiv.org/api/query', params={\n            'search_query': f'all:{q}',\n            'max_results': k,\n            'sortBy': 'relevance',\n            'sortOrder': 'descending'\n        }, timeout=20, headers={'User-Agent': 'flowgraph-research/1.0'})\n        r.raise_for_status()\n        root = ET.fromstring(r.text)\n        out = []\n        for entry in root.findall('atom:entry', ARXIV_NS):\n            id_el = entry.find('atom:id', ARXIV_NS)\n            arxiv_id = id_el.text.rsplit('/', 1)[-1] if (id_el is not None and id_el.text) else ''\n            title_el = entry.find('atom:title', ARXIV_NS)\n            title = ' '.join((title_el.text or '').split()) if title_el is not None else ''\n            sum_el = entry.find('atom:summary', ARXIV_NS)\n            summary = ' '.join((sum_el.text or '').split()) if sum_el is not None else ''\n            authors = []\n            for a in entry.findall('atom:author', ARXIV_NS):\n                ne = a.find('atom:name', ARXIV_NS)\n                if ne is not None and ne.text:\n                    authors.append(ne.text)\n            pub_el = entry.find('atom:published', ARXIV_NS)\n            published = pub_el.text if pub_el is not None else ''\n            pdf_url = ''\n            for link in entry.findall('atom:link', ARXIV_NS):\n                if link.get('title') == 'pdf':\n                    pdf_url = link.get('href', '')\n                    break\n            if not pdf_url and arxiv_id:\n                pdf_url = f'https://arxiv.org/pdf/{arxiv_id}'\n            abs_url = f'https://arxiv.org/abs/{arxiv_id}' if arxiv_id else ''\n            out.append({\n                'arxiv_id': arxiv_id, 'title': title, 'abstract': summary,\n                'authors': authors[:8], 'pdf_url': pdf_url, 'abs_url': abs_url,\n                'published': published\n            })\n        return out\n    except Exception as e:\n        return [{'error': str(e), 'query': q}]\n\ndef fetch_pdf_text(url):\n    try:\n        from pypdf import PdfReader\n        r = requests.get(url, timeout=30, headers={'User-Agent': 'flowgraph-research/1.0'})\n        r.raise_for_status()\n        rd = PdfReader(io.BytesIO(r.content))\n        return '\\n'.join((p.extract_text() or '') for p in rd.pages[:60])[:100000]\n    except Exception as e:\n        return f'[pdf error: {e}]'\n\ndef main(inputs, storages):\n    plan = inputs.get('PARSE_PLAN', {})\n    if isinstance(plan, dict) and 'output' in plan: plan = plan['output']\n    queries = plan.get('paper_queries', []) if isinstance(plan, dict) else []\n    iteration = plan.get('iteration', 0) if isinstance(plan, dict) else 0\n\n    db = storages.get('vector_db') if storages else None\n\n    if not queries:\n        return {'output': {'tool': 'paper_search', 'iteration': iteration, 'queries': [], 'results': [], 'count': 0, 'skipped': True}}\n\n    results = []\n    for q in queries[:4]:\n        papers = arxiv_search(q, k=5)\n        for paper in papers[:3]:\n            if 'error' in paper: continue\n            pdf_url = paper.get('pdf_url') or ''\n            if not pdf_url: continue\n            h = hid(pdf_url)\n            cached = get_record(db, f'source:{h}')\n            if cached:\n                results.append({\n                    'hash': h, 'cached': True, 'type': 'paper',\n                    'url': pdf_url, 'title': paper.get('title', ''),\n                    'arxiv_id': paper.get('arxiv_id', ''), 'query': q\n                })\n                continue\n            text = fetch_pdf_text(pdf_url)\n            # Embed the abstract+body together so semantic search hits both summary-level and detail-level queries.\n            searchable = f\"{paper.get('title','')}\\n\\n{paper.get('abstract','')}\\n\\n{text}\"\n            metadata = {\n                'type': 'paper', 'url': pdf_url,\n                'abs_url': paper.get('abs_url', ''),\n                'title': paper.get('title', ''),\n                'arxiv_id': paper.get('arxiv_id', ''),\n                'authors': paper.get('authors', []),\n                'abstract': paper.get('abstract', ''),\n                'published': paper.get('published', ''),\n                'found_via': q, 'iteration': iteration, 'fetched_at': int(time.time())\n            }\n            db_store(db, f'source:{h}', searchable, metadata=metadata)\n            preview_parts = []\n            if metadata['abstract']:\n                preview_parts.append('ABSTRACT: ' + metadata['abstract'])\n            preview_parts.append('FULLTEXT: ' + text)\n            results.append({\n                'hash': h, 'cached': False, 'type': 'paper',\n                'url': pdf_url, 'title': metadata['title'],\n                'arxiv_id': metadata['arxiv_id'], 'authors': metadata['authors'][:3],\n                'published': metadata['published'], 'query': q,\n                'preview': ' | '.join(preview_parts)\n            })\n\n    return {'output': {\n        'tool': 'paper_search', 'iteration': iteration,\n        'queries': queries, 'results': results, 'count': len(results),\n        'skipped': False\n    }}\n",
+        "name": "Python Node",
+        "storages": [
+          {
+            "alias": "vectordb",
+            "storage_id": "<set-via-ui>"
+          },
+          {
+            "alias": "vector_db",
+            "storage_id": "46422b05-21c8-4feb-b89f-6284c98eb9f2"
+          }
+        ],
+        "requirements": "requests>=2.0.0\npypdf>=4.0.0"
+      },
+      "node_config": {}
+    },
+    {
+      "id": "bd00b3ac-d38c-4a57-a81f-a3f7f3558f4e",
+      "name": "WEB_SEARCH",
+      "node_type_id": "custom-python",
+      "ui_x": 1190,
+      "ui_y": 100,
+      "config": {
+        "code": "import os, hashlib, time, requests\n\ndef hid(s): return hashlib.sha256(s.encode('utf-8')).hexdigest()[:16]\n\ndef db_get(db, k):\n    if not db: return None\n    try: return db.get(k)\n    except Exception: return None\n\ndef db_store(db, key, value, metadata=None):\n    \"\"\"Auto-embed write. Falls back to put() if backend lacks store().\"\"\"\n    if not db: return False\n    md = metadata or {}\n    try:\n        db.store(key=key, value=value, metadata=md)\n        return True\n    except Exception:\n        try:\n            db.put(key, {'value': value, 'metadata': md})\n            return True\n        except Exception:\n            return False\n\ndef db_search(db, query, limit=10):\n    if not db: return []\n    try:\n        return db.search(query, limit=limit) or []\n    except Exception:\n        return []\n\ndef get_record(db, k):\n    \"\"\"Backend-agnostic source reader. Handles both store() (value+metadata) and put() (flat dict) shapes.\"\"\"\n    rec = db_get(db, k)\n    if not isinstance(rec, dict): return None\n    if 'value' in rec and isinstance(rec.get('metadata'), dict):\n        return {**rec['metadata'], 'content': rec.get('value', '') or ''}\n    return rec\n\ndef tavily(q, key, k=5):\n    if not key: return [], [], 'no_key'\n    try:\n        r = requests.post('https://api.tavily.com/search', json={\n            'api_key': key, 'query': q, 'max_results': k,\n            'include_raw_content': True, 'include_images': True,\n            'include_image_descriptions': True, 'search_depth': 'advanced'\n        }, timeout=25)\n        r.raise_for_status()\n        d = r.json()\n        return d.get('results', []) or [], d.get('images', []) or [], None\n    except Exception as e:\n        return [], [], str(e)\n\ndef ddg(q, k=5):\n    \"\"\"DuckDuckGo fallback. Snippets only \u2014 no full-page raw_content.\"\"\"\n    try:\n        try:\n            from ddgs import DDGS\n        except ImportError:\n            from duckduckgo_search import DDGS\n    except ImportError as e:\n        return [], [], f'ddg unavailable: {e}'\n    items, imgs = [], []\n    try:\n        with DDGS() as d:\n            for r in d.text(q, max_results=k):\n                url = r.get('href') or r.get('url') or ''\n                if not url: continue\n                items.append({\n                    'url': url,\n                    'title': r.get('title', '') or '',\n                    'content': (r.get('body') or ''),\n                    'raw_content': ''\n                })\n    except Exception as e:\n        return [], [], f'ddg text error: {e}'\n    try:\n        with DDGS() as d:\n            for im in d.images(q, max_results=5):\n                iurl = im.get('image') or im.get('url') or ''\n                if iurl:\n                    imgs.append({'url': iurl, 'description': im.get('title', '') or ''})\n    except Exception:\n        pass\n    return items, imgs, None\n\ndef search_with_fallback(q, tavily_key, k=5):\n    items, imgs, err = tavily(q, tavily_key, k)\n    provider = 'tavily'\n    if not items:\n        ditems, dimgs, derr = ddg(q, k)\n        if ditems:\n            items = ditems\n            imgs = imgs or dimgs\n            provider = 'duckduckgo'\n        else:\n            provider = f'none(tavily={err},ddg={derr})'\n    return items, imgs, provider\n\ndef main(inputs, storages):\n    plan = inputs.get('PARSE_PLAN', {})\n    if isinstance(plan, dict) and 'output' in plan: plan = plan['output']\n    queries = plan.get('web_queries', []) if isinstance(plan, dict) else []\n    iteration = plan.get('iteration', 0) if isinstance(plan, dict) else 0\n\n    db = storages.get('vector_db') if storages else None\n    key = os.environ.get('TAVILY_API_KEY', '')\n\n    results = []\n    providers_used = []\n    if not queries:\n        return {'output': {'tool': 'web_search', 'iteration': iteration, 'queries': [], 'results': [], 'count': 0, 'skipped': True, 'providers_used': []}}\n\n    for q in queries[:6]:\n        items, imgs, provider = search_with_fallback(q, key)\n        providers_used.append({'query': q, 'provider': provider, 'item_count': len(items)})\n        for x in items:\n            url = x.get('url', '')\n            if not url: continue\n            h = hid(url)\n            cached = get_record(db, f'source:{h}')\n            if cached:\n                results.append({'hash': h, 'cached': True, 'type': 'web', 'url': url, 'title': x.get('title', '') or '', 'query': q, 'provider': provider})\n                continue\n            content = (x.get('raw_content') or x.get('content') or '')[:25000]\n            metadata = {\n                'type': 'web', 'url': url, 'title': x.get('title', '') or '',\n                'found_via': q, 'iteration': iteration, 'provider': provider, 'fetched_at': int(time.time())\n            }\n            db_store(db, f'source:{h}', content, metadata=metadata)\n            results.append({'hash': h, 'cached': False, 'type': 'web', 'url': url, 'title': metadata['title'], 'query': q, 'provider': provider, 'preview': content[:400]})\n        for img in imgs[:5]:\n            if isinstance(img, str):\n                iurl, desc = img, ''\n            elif isinstance(img, dict):\n                iurl = img.get('url') or ''\n                desc = img.get('description') or ''\n            else:\n                continue\n            if not iurl: continue\n            ih = hid(iurl)\n            if not get_record(db, f'image:{ih}'):\n                # value=description so the image is searchable by what it depicts; metadata holds the URL.\n                db_store(db, f'image:{ih}', desc or iurl, metadata={\n                    'type': 'image', 'url': iurl, 'description': desc, 'found_via': q,\n                    'iteration': iteration, 'provider': provider, 'fetched_at': int(time.time())\n                })\n            results.append({'hash': ih, 'type': 'image', 'url': iurl, 'query': q, 'provider': provider})\n\n    return {'output': {\n        'tool': 'web_search', 'iteration': iteration,\n        'queries': queries, 'results': results, 'count': len(results),\n        'skipped': False, 'providers_used': providers_used\n    }}\n",
+        "name": "Python Node",
+        "storages": [
+          {
+            "alias": "vectordb",
+            "storage_id": "<set-via-ui>"
+          },
+          {
+            "alias": "vector_db",
+            "storage_id": "46422b05-21c8-4feb-b89f-6284c98eb9f2"
+          }
+        ],
+        "requirements": "requests>=2.0.0\nduckduckgo-search>=6.0.0"
+      },
+      "node_config": {}
+    },
+    {
+      "id": "3583cab9-56fd-48c3-a78f-c42938964274",
+      "name": "MERGE_TOOLS",
+      "node_type_id": "custom-python",
+      "ui_x": 1520,
+      "ui_y": 280,
+      "config": {
+        "code": "import json, re\n\ndef _u(x):\n    if isinstance(x, dict) and 'output' in x: return x['output']\n    return x if isinstance(x, dict) else {}\n\ndef parse_json(raw):\n    if not isinstance(raw, str): return {}\n    s = re.sub(r'^```(?:json)?\\s*|\\s*```$', '', raw.strip(), flags=re.DOTALL)\n    m = re.search(r'\\{.*\\}', s, re.DOTALL)\n    if not m: return {}\n    try: return json.loads(m.group(0))\n    except Exception: return {}\n\ndef main(inputs, storages):\n    web = _u(inputs.get('WEB_SEARCH'))\n    paper = _u(inputs.get('PAPER_SEARCH'))\n    pdf = _u(inputs.get('PDF_READ'))\n    llm_raw = inputs.get('LLM_ACTION', '')\n    llm = parse_json(llm_raw) if isinstance(llm_raw, str) else {}\n\n    iteration = web.get('iteration', paper.get('iteration', pdf.get('iteration', 0)))\n\n    web_count = web.get('count', 0)\n    paper_count = paper.get('count', 0)\n    pdf_count = pdf.get('count', 0)\n    llm_answers = llm.get('answers', []) or []\n\n    new_hashes = []\n    for tool_out in (web, paper, pdf):\n        for r in (tool_out.get('results') or []):\n            if not r.get('cached') and r.get('hash'):\n                new_hashes.append(r['hash'])\n\n    found_anything = (web_count + paper_count + pdf_count) > 0 or bool(llm_answers)\n\n    return {'output': {\n        'iteration': iteration,\n        'web_count': web_count,\n        'paper_count': paper_count,\n        'pdf_count': pdf_count,\n        'llm_answers': llm_answers,\n        'llm_response_raw': llm_raw if isinstance(llm_raw, str) else '',\n        'new_source_hashes': new_hashes,\n        'found_anything': found_anything,\n        'message': f'iter={iteration} web={web_count} paper={paper_count} pdf={pdf_count} llm={len(llm_answers)} new_sources={len(new_hashes)}'\n    }}\n",
+        "name": "Python Node",
+        "requirements": ""
+      },
+      "node_config": {}
+    },
+    {
+      "id": "271e1d6f-bb34-4e09-a7dc-855daef4babc",
+      "name": "EXIT_GATE",
+      "node_type_id": "condition-python",
+      "ui_x": 2840,
+      "ui_y": 280,
+      "config": {
+        "code": "def main(inputs, storages):\n    state = inputs.get('STORE_ITER', {})\n    if isinstance(state, dict) and 'output' in state: state = state['output']\n    if not isinstance(state, dict): state = {}\n\n    iteration = state.get('iteration', 0)\n    open_qs = state.get('open_questions', []) or []\n\n    try:\n        max_iter = int((inputs.get('MAX_ITERATIONS') or '5').strip())\n    except Exception:\n        max_iter = 5\n    if max_iter < 1: max_iter = 1\n\n    # Exit (true) when at iteration cap (iteration is 0-based) or no open questions remain.\n    if iteration >= max_iter - 1: return True\n    if not open_qs: return True\n    return False\n",
+        "name": "Condition",
+        "requirements": "",
+        "condition_mode": true
+      },
+      "node_config": {}
+    },
+    {
+      "id": "502f5f6f-0f46-47e7-98a9-e7eedfa6dfed",
+      "name": "ANALYZE",
+      "node_type_id": "custom-llm",
+      "ui_x": 2180,
+      "ui_y": 280,
+      "config": {
+        "name": "LLM Node",
+        "prompt": "You are the analyst of an iterative research agent.\n\nTopic: {RESEARCH_TOPIC}\nIteration: {ANALYZE_PREP.output.iteration}\n\nNEW + SEMANTICALLY-RELEVANT PRIOR SOURCES this iteration. Each entry has: hash, type, url, title, body, origin (`this_iteration` for freshly fetched, `semantic_prior` for vector-search hits from past iterations), and \u2014 for papers \u2014 abstract + authors + arxiv_id + published. Sources marked `semantic_prior` carry a similarity `score`.\nThis iteration freshly fetched: {ANALYZE_PREP.output.this_iteration_count} sources.\nSemantically pulled from prior iterations: {ANALYZE_PREP.output.semantic_prior_count} sources.\nTotal content passed: {ANALYZE_PREP.output.total_chars_passed} chars across {ANALYZE_PREP.output.source_count} sources.\n\n{ANALYZE_PREP.output.sources_for_analysis}\n\nLLM-tool answers from this iteration (model self-knowledge, NOT a citable source):\n{ANALYZE_PREP.output.llm_answers}\n\nPRIOR STATE (empty/missing on first iteration):\n- Earlier perspectives: {STORE_ITER.output.perspectives}\n- Earlier definitive answer: {STORE_ITER.output.definitive_answer}\n- Earlier open questions: {STORE_ITER.output.open_questions}\n\nCITATION RULES \u2014 read carefully:\n- The ONLY valid source_hash values are the ones in this whitelist: {ANALYZE_PREP.output.valid_hashes}\n- Every claim MUST cite at least one hash from that whitelist. If you cannot ground a claim in those sources, do not include it.\n- Do NOT invent hashes. Do NOT abbreviate hashes. Use them verbatim from the whitelist.\n- LLM-tool answers are background context \u2014 they do NOT carry source hashes and cannot be used to support claims as if they were primary sources.\n- `semantic_prior` sources are just as valid as `this_iteration` sources for citations \u2014 both come from the same vectordb.\n\nTasks:\n1. Generate 3-5 distinct PERSPECTIVES on the topic \u2014 each is a coherent angle. Each perspective summarises claims with `source_hash` citations from the whitelist. Refresh prior perspectives with new evidence rather than duplicating them.\n2. Update the DEFINITIVE current best answer (1 paragraph, integrating all iterations to date).\n3. List OPEN QUESTIONS \u2014 what important things remain unresolved AFTER this iteration. These will drive the next iteration's plan.\n4. If the topic appears fully answered with no productive open questions, return an empty `open_questions` list \u2014 that signals the agent to stop.\n\nAny image URLs visible in the data above will be auto-loaded as visual evidence \u2014 extract and cite them too.\n\nRespond ONLY with JSON in this exact shape:\n{\n  \"perspectives\": [{\"angle\": \"string\", \"summary\": \"string\", \"claims\": [{\"claim\": \"...\", \"source_hash\": \"...\"}]}],\n  \"definitive_answer\": \"1 paragraph integrating all iterations\",\n  \"open_questions\": [\"specific question 1\", \"...\"],\n  \"source_hashes_used\": [\"...\"]\n}",
+        "configId": "bc8e27a0-4031-4d89-8f1a-2ea18855eecf"
+      },
+      "node_config": {}
+    },
+    {
+      "id": "1a089cf6-c75f-42a9-a8ea-49e0ecd149f1",
+      "name": "STORE_ITER",
+      "node_type_id": "custom-python",
+      "ui_x": 2510,
+      "ui_y": 280,
+      "config": {
+        "code": "import json, re, time, hashlib\n\ndef hid(s): return hashlib.sha256(s.encode('utf-8')).hexdigest()[:16]\n\ndef db_get(db, k):\n    if not db: return None\n    try: return db.get(k)\n    except Exception: return None\n\ndef db_store(db, key, value, metadata=None):\n    \"\"\"Auto-embed write. Falls back to put() if backend lacks store().\"\"\"\n    if not db: return False\n    md = metadata or {}\n    try:\n        db.store(key=key, value=value, metadata=md)\n        return True\n    except Exception:\n        try:\n            db.put(key, {'value': value, 'metadata': md})\n            return True\n        except Exception:\n            return False\n\ndef db_search(db, query, limit=10):\n    if not db: return []\n    try:\n        return db.search(query, limit=limit) or []\n    except Exception:\n        return []\n\ndef get_record(db, k):\n    \"\"\"Backend-agnostic source reader. Handles both store() (value+metadata) and put() (flat dict) shapes.\"\"\"\n    rec = db_get(db, k)\n    if not isinstance(rec, dict): return None\n    if 'value' in rec and isinstance(rec.get('metadata'), dict):\n        return {**rec['metadata'], 'content': rec.get('value', '') or ''}\n    return rec\n\ndef parse_json(raw):\n    if not isinstance(raw, str): return {}\n    s = re.sub(r'^```(?:json)?\\s*|\\s*```$', '', raw.strip(), flags=re.DOTALL)\n    m = re.search(r'\\{.*\\}', s, re.DOTALL)\n    if not m: return {}\n    try: return json.loads(m.group(0))\n    except Exception: return {}\n\ndef main(inputs, storages):\n    topic = (inputs.get('RESEARCH_TOPIC') or '').strip()\n    raw = inputs.get('ANALYZE', '')\n    parsed = parse_json(raw)\n\n    prep = inputs.get('ANALYZE_PREP', {})\n    if isinstance(prep, dict) and 'output' in prep: prep = prep['output']\n    iteration = prep.get('iteration', 0) if isinstance(prep, dict) else 0\n    valid_hashes = set(prep.get('valid_hashes', []) or []) if isinstance(prep, dict) else set()\n\n    prev = inputs.get('STORE_ITER') or {}\n    if isinstance(prev, dict) and 'output' in prev: prev = prev['output']\n    if not isinstance(prev, dict): prev = {}\n\n    db = storages.get('vector_db') if storages else None\n    topic_hash = hid(topic) if topic else 'unknown'\n    run_id = prev.get('run_id') or f'{topic_hash}:{int(time.time())}'\n\n    cleaned_perspectives = []\n    for p in (parsed.get('perspectives', []) or []):\n        if not isinstance(p, dict): continue\n        clean_claims = []\n        for c in (p.get('claims') or []):\n            if not isinstance(c, dict): continue\n            sh = c.get('source_hash', '')\n            if valid_hashes and sh and sh not in valid_hashes:\n                continue\n            clean_claims.append(c)\n        cleaned_perspectives.append({**p, 'claims': clean_claims})\n\n    perspective_keys = []\n    for i, p in enumerate(cleaned_perspectives):\n        angle = (p.get('angle') or f'angle_{i}').strip()\n        slug = re.sub(r'[^a-z0-9]+', '_', angle.lower()).strip('_')[:40] or f'p{i}'\n        pk = f'perspective:{topic_hash}:{run_id}:iter{iteration}:{slug}'\n        # Embed the perspective summary so future runs can semantically retrieve prior angles.\n        searchable = f\"{angle}\\n\\n{p.get('summary','')}\"\n        db_store(db, pk, searchable, metadata={\n            'type': 'perspective', 'topic': topic, 'topic_hash': topic_hash, 'run_id': run_id,\n            'iteration': iteration, 'angle': angle,\n            'claims': p.get('claims', []) or []\n        })\n        perspective_keys.append(pk)\n\n    raw_used = parsed.get('source_hashes_used', []) or []\n    used = [h for h in raw_used if (not valid_hashes) or h in valid_hashes]\n\n    iter_key = f'iteration:{topic_hash}:{run_id}:{iteration}'\n    db_store(db, iter_key, parsed.get('definitive_answer', '') or '(none)', metadata={\n        'type': 'iteration', 'topic': topic, 'run_id': run_id, 'iteration': iteration,\n        'perspective_keys': perspective_keys,\n        'open_questions': parsed.get('open_questions', []) or [],\n        'source_hashes_used': used\n    })\n    db_store(db, f'research:latest:{topic_hash}', topic, metadata={\n        'type': 'latest_pointer', 'run_id': run_id, 'topic': topic,\n        'updated_at': int(time.time()), 'last_iteration': iteration\n    })\n\n    cum_persp = ((prev.get('perspectives') or []) + cleaned_perspectives)[-30:]\n    cum_hashes = list(dict.fromkeys((prev.get('cumulative_source_hashes') or []) + used))\n    all_persp_keys = (prev.get('all_perspective_keys') or []) + perspective_keys\n    all_iter_keys = (prev.get('all_iteration_keys') or []) + [iter_key]\n\n    return {'output': {\n        'topic': topic,\n        'topic_hash': topic_hash,\n        'run_id': run_id,\n        'iteration': iteration,\n        'perspectives': cum_persp,\n        'definitive_answer': parsed.get('definitive_answer', ''),\n        'open_questions': parsed.get('open_questions', []) or [],\n        'cumulative_source_hashes': cum_hashes,\n        'all_perspective_keys': all_persp_keys,\n        'all_iteration_keys': all_iter_keys,\n        'fabricated_hashes_dropped': len(raw_used) - len(used)\n    }}\n",
+        "name": "Python Node",
+        "storages": [
+          {
+            "alias": "vectordb",
+            "storage_id": "<set-via-ui>"
+          },
+          {
+            "alias": "vector_db",
+            "storage_id": "46422b05-21c8-4feb-b89f-6284c98eb9f2"
+          }
+        ],
+        "requirements": ""
+      },
+      "node_config": {}
+    },
+    {
+      "id": "8795ebbc-b3f6-4cdb-a747-9f06ca1d315f",
+      "name": "STORE_FINAL",
+      "node_type_id": "custom-python",
+      "ui_x": 3500,
+      "ui_y": 280,
+      "config": {
+        "code": "import json, time, hashlib\n\ndef hid(s): return hashlib.sha256(s.encode('utf-8')).hexdigest()[:16]\n\ndef db_get(db, k):\n    if not db: return None\n    try: return db.get(k)\n    except Exception: return None\n\ndef db_store(db, key, value, metadata=None):\n    \"\"\"Auto-embed write. Falls back to put() if backend lacks store().\"\"\"\n    if not db: return False\n    md = metadata or {}\n    try:\n        db.store(key=key, value=value, metadata=md)\n        return True\n    except Exception:\n        try:\n            db.put(key, {'value': value, 'metadata': md})\n            return True\n        except Exception:\n            return False\n\ndef db_search(db, query, limit=10):\n    if not db: return []\n    try:\n        return db.search(query, limit=limit) or []\n    except Exception:\n        return []\n\ndef get_record(db, k):\n    \"\"\"Backend-agnostic source reader. Handles both store() (value+metadata) and put() (flat dict) shapes.\"\"\"\n    rec = db_get(db, k)\n    if not isinstance(rec, dict): return None\n    if 'value' in rec and isinstance(rec.get('metadata'), dict):\n        return {**rec['metadata'], 'content': rec.get('value', '') or ''}\n    return rec\n\ndef main(inputs, storages):\n    topic = (inputs.get('RESEARCH_TOPIC') or '').strip()\n    final_md = inputs.get('FINAL_REPORT', '')\n    db = storages.get('vector_db') if storages else None\n\n    topic_hash = hid(topic) if topic else 'unknown'\n    latest = get_record(db, f'research:latest:{topic_hash}') if db else None\n    run_id = (latest or {}).get('run_id') if isinstance(latest, dict) else None\n\n    state = {}\n    if db and run_id:\n        for n in range(20, -1, -1):\n            rec = get_record(db, f'iteration:{topic_hash}:{run_id}:{n}')\n            if isinstance(rec, dict) and rec:\n                state = rec\n                break\n\n    if not run_id:\n        run_id = f'{topic_hash}:{int(time.time())}'\n\n    final_key = f'research:final:{run_id}'\n    report_md = final_md if isinstance(final_md, str) else json.dumps(final_md)\n    metadata = {\n        'type': 'final_report', 'topic': topic, 'topic_hash': topic_hash, 'run_id': run_id,\n        'created_at': int(time.time()),\n        'iterations_run': (state.get('iteration', 0) or 0) + 1,\n        'definitive_answer': state.get('content') or state.get('definitive_answer', ''),\n        'open_questions_remaining': state.get('open_questions', []) or [],\n        'perspective_keys': state.get('perspective_keys', []) or [],\n        'all_source_hashes': state.get('source_hashes_used', []) or []\n    }\n    db_store(db, final_key, report_md, metadata=metadata)\n    db_store(db, f'research:latest:{topic_hash}', topic, metadata={\n        'type': 'latest_pointer', 'run_id': run_id, 'final_key': final_key,\n        'topic': topic, 'updated_at': int(time.time())\n    })\n\n    return {'output': {\n        'topic': topic, 'topic_hash': topic_hash, 'run_id': run_id,\n        'final_key': final_key,\n        'iterations_run': metadata['iterations_run'],\n        'open_questions_remaining': metadata['open_questions_remaining'],\n        'report_markdown': report_md\n    }}\n",
+        "name": "Python Node",
+        "storages": [
+          {
+            "alias": "vectordb",
+            "storage_id": "<set-via-ui>"
+          },
+          {
+            "alias": "vector_db",
+            "storage_id": "46422b05-21c8-4feb-b89f-6284c98eb9f2"
+          }
+        ],
+        "requirements": ""
+      },
+      "node_config": {}
+    },
+    {
+      "id": "c8fcb094-fd3f-4f89-b352-f76aa2a476ed",
+      "name": "PLANNER",
+      "node_type_id": "custom-llm",
+      "ui_x": 619.4696607872552,
+      "ui_y": 101.44589961070614,
+      "config": {
+        "name": "LLM Node",
+        "prompt": "You are the planner of an iterative research agent.\n\nTopic: {RESEARCH_TOPIC}\n\nPRIOR ITERATION STATE (empty/missing on first pass = this is iteration 0):\n- Iteration just completed: {STORE_ITER.output.iteration}\n- Definitive answer so far: {STORE_ITER.output.definitive_answer}\n- Open questions still unresolved: {STORE_ITER.output.open_questions}\n- Perspectives gathered so far: {STORE_ITER.output.perspectives}\n- Sources already consulted (hashes): {STORE_ITER.output.cumulative_source_hashes}\n\nAvailable tools:\n- web_search \u2014 current events, news, blogs, general info. Pass {\"tool\":\"web_search\",\"query\":\"...\"}.\n- paper_search \u2014 research papers via arXiv. Returns paper metadata AND extracts full PDF text. Use for: technical/scientific questions, primary sources, peer-reviewed evidence, recent academic work. Pass {\"tool\":\"paper_search\",\"query\":\"...\"}.\n- pdf_read \u2014 deep-read a specific PDF you've already located by URL (non-arXiv: gov reports, white papers, standards docs). Pass {\"tool\":\"pdf_read\",\"url\":\"https://...\"}.\n- llm \u2014 synthesize from your own knowledge, no fetch. Pass {\"tool\":\"llm\",\"prompt\":\"...\"}.\n\nDecision rules:\n- If the prior iteration state is empty or missing, this is the FIRST pass. Use the topic to seed 2-4 broad starting queries \u2014 mix web_search with paper_search if the topic has any technical/scientific dimension.\n- On non-first passes, target the OPEN QUESTIONS specifically. Do NOT repeat queries that already produced sources you can see in cumulative_source_hashes.\n- Mix tools \u2014 don't pile everything into web_search. If a question is conceptual or factual without primary-source needs, use llm. If it needs rigorous evidence, use paper_search. If you've located a specific non-arXiv PDF URL in earlier sources (e.g. a referenced report), use pdf_read.\n- Pick 3-6 actions total. Quality over quantity.\n\nRespond ONLY with JSON in this exact shape:\n{\n  \"actions\": [\n    {\"tool\": \"web_search\", \"query\": \"specific query\"},\n    {\"tool\": \"paper_search\", \"query\": \"specific paper-worthy query\"},\n    {\"tool\": \"pdf_read\", \"url\": \"https://...\"},\n    {\"tool\": \"llm\", \"prompt\": \"specific question to answer from training\"}\n  ],\n  \"reasoning\": \"1-2 sentences on why these actions for this iteration\"\n}",
+        "configId": "bc8e27a0-4031-4d89-8f1a-2ea18855eecf"
+      },
+      "node_config": {}
+    },
+    {
+      "id": "4a53388a-a4a9-4703-a857-8974ea130ddc",
+      "name": "ANALYZE_PREP",
+      "node_type_id": "custom-python",
+      "ui_x": 1850,
+      "ui_y": 280,
+      "config": {
+        "code": "def db_get(db, k):\n    if not db: return None\n    try: return db.get(k)\n    except Exception: return None\n\ndef db_store(db, key, value, metadata=None):\n    \"\"\"Auto-embed write. Falls back to put() if backend lacks store().\"\"\"\n    if not db: return False\n    md = metadata or {}\n    try:\n        db.store(key=key, value=value, metadata=md)\n        return True\n    except Exception:\n        try:\n            db.put(key, {'value': value, 'metadata': md})\n            return True\n        except Exception:\n            return False\n\ndef db_search(db, query, limit=10):\n    if not db: return []\n    try:\n        return db.search(query, limit=limit) or []\n    except Exception:\n        return []\n\ndef get_record(db, k):\n    \"\"\"Backend-agnostic source reader. Handles both store() (value+metadata) and put() (flat dict) shapes.\"\"\"\n    rec = db_get(db, k)\n    if not isinstance(rec, dict): return None\n    if 'value' in rec and isinstance(rec.get('metadata'), dict):\n        return {**rec['metadata'], 'content': rec.get('value', '') or ''}\n    return rec\n\ndef main(inputs, storages):\n    topic = (inputs.get('RESEARCH_TOPIC') or '').strip()\n    merged = inputs.get('MERGE_TOOLS', {})\n    if isinstance(merged, dict) and 'output' in merged: merged = merged['output']\n    if not isinstance(merged, dict): merged = {}\n    iteration = merged.get('iteration', 0)\n    new_hashes = merged.get('new_source_hashes', []) or []\n    llm_answers = merged.get('llm_answers', []) or []\n\n    db = storages.get('vector_db') if storages else None\n\n    sources = []\n    seen_hashes = set()\n    used_chars = 0\n\n    # 1) This iteration's NEW sources by exact hash.\n    for h in new_hashes:\n        rec = get_record(db, f'source:{h}')\n        if not rec: continue\n        if h in seen_hashes: continue\n        seen_hashes.add(h)\n        stype = rec.get('type', 'web')\n        content = rec.get('content', '') or ''\n        entry = {\n            'hash': h, 'type': stype, 'origin': 'this_iteration',\n            'url': rec.get('url', ''), 'title': rec.get('title', ''),\n            'body': content, 'body_chars': len(content)\n        }\n        if stype == 'paper':\n            entry['abstract'] = rec.get('abstract', '') or ''\n            entry['authors'] = rec.get('authors', []) or []\n            entry['arxiv_id'] = rec.get('arxiv_id', '')\n            entry['published'] = rec.get('published', '')\n            used_chars += len(entry['abstract'])\n        used_chars += len(content)\n        sources.append(entry)\n\n    # 2) Semantically-relevant PRIOR sources. The vectordb auto-embeds the topic and returns hits.\n    #    Skip anything already in `sources` (this iteration) or non-source keys.\n    semantic_hits = db_search(db, topic, limit=15) if topic else []\n    relevant_prior = []\n    for hit in semantic_hits:\n        if not isinstance(hit, dict): continue\n        key = hit.get('key', '')\n        if not key.startswith('source:'): continue\n        h = key.split(':', 1)[1]\n        if h in seen_hashes: continue\n        rec = get_record(db, key)\n        if not rec: continue\n        seen_hashes.add(h)\n        stype = rec.get('type', 'web')\n        content = rec.get('content', '') or ''\n        entry = {\n            'hash': h, 'type': stype, 'origin': 'semantic_prior',\n            'score': hit.get('score'),\n            'url': rec.get('url', ''), 'title': rec.get('title', ''),\n            'body': content, 'body_chars': len(content)\n        }\n        if stype == 'paper':\n            entry['abstract'] = rec.get('abstract', '') or ''\n            entry['authors'] = rec.get('authors', []) or []\n            entry['arxiv_id'] = rec.get('arxiv_id', '')\n            entry['published'] = rec.get('published', '')\n            used_chars += len(entry['abstract'])\n        used_chars += len(content)\n        relevant_prior.append(entry)\n    sources.extend(relevant_prior)\n\n    return {'output': {\n        'iteration': iteration,\n        'sources_for_analysis': sources,\n        'source_count': len(sources),\n        'this_iteration_count': len([s for s in sources if s['origin'] == 'this_iteration']),\n        'semantic_prior_count': len(relevant_prior),\n        'total_chars_passed': used_chars,\n        'valid_hashes': [s['hash'] for s in sources],\n        'llm_answers': llm_answers,\n        'found_anything': merged.get('found_anything', False)\n    }}\n",
+        "name": "Python Node",
+        "storages": [
+          {
+            "alias": "vectordb",
+            "storage_id": "<set-via-ui>"
+          },
+          {
+            "alias": "vector_db",
+            "storage_id": "46422b05-21c8-4feb-b89f-6284c98eb9f2"
+          }
+        ],
+        "requirements": ""
+      },
+      "node_config": {}
+    },
+    {
+      "id": "e9f4a2b8-3c61-4d92-9b8a-7f5e2d1c4b9a",
+      "name": "RENDER_HTML",
+      "node_type_id": "custom-llm",
+      "ui_x": 3830,
+      "ui_y": 280,
+      "config": {
+        "name": "LLM Node",
+        "prompt": "Convert the research report below into a single self-contained HTML document. The output is meant to be opened directly in a browser, so it must be valid HTML5 with embedded styles \u2014 no external CSS, no JavaScript.\n\nSource markdown report:\n{STORE_FINAL.output.report_markdown}\n\nRun metadata you can show in a small header strip:\n- Topic: {RESEARCH_TOPIC}\n- Iterations completed: {STORE_FINAL.output.iterations_run}\n- Final key: {STORE_FINAL.output.final_key}\n- Open questions remaining: {STORE_FINAL.output.open_questions_remaining}\n\nConversion rules:\n- Map markdown structure to semantic HTML: `## H` \u2192 <h2>, `### H` \u2192 <h3>, `**bold**` \u2192 <strong>, `*em*` \u2192 <em>, fenced code \u2192 <pre><code>, tables \u2192 <table>, lists \u2192 <ul>/<ol>.\n- Preserve EVERY markdown image `![alt](url)` as a real <img> tag with `loading=\"lazy\"`, `style=\"max-width:100%; height:auto; border-radius:8px; margin:12px 0;\"`, and the alt text. Do NOT drop images. If the alt is empty, use the surrounding heading or claim as alt.\n- Preserve EVERY citation token `[src:HASH]` as small inline annotations: <span class=\"cite\">[src:HASH]</span>. Do not strip them.\n- Hyperlinks in the markdown become real <a href=\"...\" target=\"_blank\" rel=\"noopener\">\u2026</a>.\n\nStyling \u2014 emit a <style> block in <head> with:\n- A readable serif body font, dark text on near-white background, max-width container ~760px, generous line-height (~1.7).\n- Distinct heading hierarchy (h1 large, h2 medium with subtle bottom border, h3 smaller).\n- `.cite` styled small, monospace, muted color, with rounded background pill.\n- Image figures with subtle shadow and rounded corners.\n- A small `.meta` header strip at the top showing topic + iterations + open-question count.\n- A `.open-questions` block at the end (if open questions exist), styled as a callout (left border accent, subtle background tint).\n\nOutput rules:\n- Output ONLY the raw HTML document. First character `<`, last character `>`. No markdown fences. No commentary before or after.\n- The document MUST start with `<!DOCTYPE html>` and contain a single `<html>` element with `<head>` and `<body>`.\n- Title the document \"<topic> \u2014 Research Report\" (escape entities as needed).\n- If the markdown report is empty or says perspectives are empty, render a minimal HTML page with a single sentence saying so.",
+        "configId": "bc8e27a0-4031-4d89-8f1a-2ea18855eecf"
+      },
+      "node_config": {}
+    }
+  ],
+  "edges": [
+    {
+      "source_node_id": "5cbc4b9b-bff2-42da-9b7d-b7490b0182a8",
+      "target_node_id": "c8fcb094-fd3f-4f89-b352-f76aa2a476ed",
+      "weight": 1,
+      "source_handle": null
+    },
+    {
+      "source_node_id": "71ea22ca-675f-4138-b935-c07aee98cdef",
+      "target_node_id": "271e1d6f-bb34-4e09-a7dc-855daef4babc",
+      "weight": 1,
+      "source_handle": null
+    },
+    {
+      "source_node_id": "c8fcb094-fd3f-4f89-b352-f76aa2a476ed",
+      "target_node_id": "ff96eaf7-1c35-47dd-a357-e98eceea4e1a",
+      "weight": 1,
+      "source_handle": null
+    },
+    {
+      "source_node_id": "ff96eaf7-1c35-47dd-a357-e98eceea4e1a",
+      "target_node_id": "bd00b3ac-d38c-4a57-a81f-a3f7f3558f4e",
+      "weight": 1,
+      "source_handle": null
+    },
+    {
+      "source_node_id": "ff96eaf7-1c35-47dd-a357-e98eceea4e1a",
+      "target_node_id": "7874e045-c50e-4a31-a9f2-30f51a1656c6",
+      "weight": 1,
+      "source_handle": null
+    },
+    {
+      "source_node_id": "ff96eaf7-1c35-47dd-a357-e98eceea4e1a",
+      "target_node_id": "251290b3-8000-44f5-8474-137f10c98677",
+      "weight": 1,
+      "source_handle": null
+    },
+    {
+      "source_node_id": "ff96eaf7-1c35-47dd-a357-e98eceea4e1a",
+      "target_node_id": "775f6451-30dd-43db-b8bb-3fa40148bead",
+      "weight": 1,
+      "source_handle": null
+    },
+    {
+      "source_node_id": "bd00b3ac-d38c-4a57-a81f-a3f7f3558f4e",
+      "target_node_id": "3583cab9-56fd-48c3-a78f-c42938964274",
+      "weight": 1,
+      "source_handle": null
+    },
+    {
+      "source_node_id": "7874e045-c50e-4a31-a9f2-30f51a1656c6",
+      "target_node_id": "3583cab9-56fd-48c3-a78f-c42938964274",
+      "weight": 1,
+      "source_handle": null
+    },
+    {
+      "source_node_id": "251290b3-8000-44f5-8474-137f10c98677",
+      "target_node_id": "3583cab9-56fd-48c3-a78f-c42938964274",
+      "weight": 1,
+      "source_handle": null
+    },
+    {
+      "source_node_id": "775f6451-30dd-43db-b8bb-3fa40148bead",
+      "target_node_id": "3583cab9-56fd-48c3-a78f-c42938964274",
+      "weight": 1,
+      "source_handle": null
+    },
+    {
+      "source_node_id": "3583cab9-56fd-48c3-a78f-c42938964274",
+      "target_node_id": "4a53388a-a4a9-4703-a857-8974ea130ddc",
+      "weight": 1,
+      "source_handle": null
+    },
+    {
+      "source_node_id": "4a53388a-a4a9-4703-a857-8974ea130ddc",
+      "target_node_id": "502f5f6f-0f46-47e7-98a9-e7eedfa6dfed",
+      "weight": 1,
+      "source_handle": null
+    },
+    {
+      "source_node_id": "502f5f6f-0f46-47e7-98a9-e7eedfa6dfed",
+      "target_node_id": "1a089cf6-c75f-42a9-a8ea-49e0ecd149f1",
+      "weight": 1,
+      "source_handle": null
+    },
+    {
+      "source_node_id": "1a089cf6-c75f-42a9-a8ea-49e0ecd149f1",
+      "target_node_id": "271e1d6f-bb34-4e09-a7dc-855daef4babc",
+      "weight": 1,
+      "source_handle": null
+    },
+    {
+      "source_node_id": "271e1d6f-bb34-4e09-a7dc-855daef4babc",
+      "target_node_id": "b1822d5f-2325-4875-ab70-abf1d5b5ed67",
+      "weight": 1,
+      "source_handle": "true"
+    },
+    {
+      "source_node_id": "271e1d6f-bb34-4e09-a7dc-855daef4babc",
+      "target_node_id": "c8fcb094-fd3f-4f89-b352-f76aa2a476ed",
+      "weight": 1,
+      "source_handle": "false"
+    },
+    {
+      "source_node_id": "b1822d5f-2325-4875-ab70-abf1d5b5ed67",
+      "target_node_id": "8795ebbc-b3f6-4cdb-a747-9f06ca1d315f",
+      "weight": 1,
+      "source_handle": null
+    },
+    {
+      "source_node_id": "8795ebbc-b3f6-4cdb-a747-9f06ca1d315f",
+      "target_node_id": "e9f4a2b8-3c61-4d92-9b8a-7f5e2d1c4b9a",
+      "weight": 1,
+      "source_handle": null
+    }
+  ]
+}
